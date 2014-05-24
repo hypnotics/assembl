@@ -110,6 +110,49 @@
    }
 }
 
-.loginbox.sign-in {
+.bx-login{
+  position: relative;
+  margin: 0 auto;
+  width: 850px;
+  margin-top: 5%;
+}
 
+.bx-welcome{
+  background: white;
+  padding: 24px;
+  height: 279px;
+  width: 475px;
+  border: 1px solid #CCCCCC;
+  box-shadow: 0 0 125px rgba(255,255,255,.35);
+  display: block;
+  left: 0;
+  position: absolute;
+  top: 0;
+  border-radius: 3px;
+}
+
+.bx-signin{
+  position: absolute;
+  left: 536px;
+  background: white;
+  border: 1px solid #CCCCCC;
+  box-shadow: none;
+  width: 300px;
+}
+
+.bx-signup{
+  border: 1px solid #CCCCCC;
+  height: 175px;
+  left: 536px;
+  position: absolute;
+  top: 150px;
+  width: 300px;
+}
+
+
+.bx-signin, .bx-signup{
+  background: #fff;
+  border: 1px solid #CCCCCC;
+  box-shadow: 0 0 125px rgba(255,255,255,.35);
+  border-radius: 3px;
 }

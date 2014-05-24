@@ -20,7 +20,31 @@
 
 {% block content %}
 
-<div class="loginbox sign-in">
+<div class="bx-login">
+
+    <div class="bx-welcome"></div>
+    <div class="bx-signin">
+        <form class="form" method="POST">
+            <input type="hidden" name="next_view" value="{{next_view}}" />
+            <input type="text" name="identifier" placeholder="{{ gettext('Email or username') }}" autofocus required />
+            <input type="password" name="password" placeholder="{{ gettext('Password') }}" required />
+            <input type="submit" name="login" value="{{ gettext('Enter') }}"/>
+        </form>
+    </div>
+    <div class="bx-signup">
+        <form class="form" method="POST">
+           <input type="hidden" name="next_view" value="{{next_view}}" />
+           <input type="text" name="name" placeholder="{{ gettext('Name') }}" autofocus required />
+           <input type="text" name="email" placeholder="{{ gettext('email') }}" required />
+           <input type="password" name="password" placeholder="{{ gettext('Password') }}" required />
+           <input type="submit" name="register" value="{{ gettext('Register') }}" />
+        </form>
+    </div>
+</div>
+
+
+
+{#<div class="loginbox sign-in">
     <div class="signinWrapper">
         <p class="login-box-title">{{ gettext("Connect to assembl") }}</p>
         <div class="error-message">{{error}}</div>
@@ -61,7 +85,7 @@
         {% set imaginationForPeople = "<a href='http://imaginationforpeople.org/' class='link i4p'>"+gettext("Imagination for people") +"</a>" %}
         <p>{{ gettext("Designed by %(caravan)s and %(imaginationForPeople)s")|format(caravan=caravan, imaginationForPeople=imaginationForPeople)|safe }}</p>
     </footer>
-</div>
+</div>#}
 
 {% endblock %}
 
