@@ -110,6 +110,8 @@
    }
 }
 
+// New Login box
+
 .bx-login{
   position: relative;
   margin: 0 auto;
@@ -145,14 +147,32 @@
   height: 175px;
   left: 536px;
   position: absolute;
-  top: 150px;
+  top: 154px;
   width: 300px;
+  h2 {
+    border-bottom: 1px solid #e1e8ed;
+    display: block;
+    font-size: 16px;
+    font-weight: 300;
+    margin:0 0 10px 0;
+    padding: 10px 0px;
+    position: relative;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.6);
+  }
 }
 
 
 .bx-signin, .bx-signup{
+  @include border-radius(3px);
   background: #fff;
   border: 1px solid #CCCCCC;
   box-shadow: 0 0 125px rgba(255,255,255,.35);
-  border-radius: 3px;
+  box-sizing: border-box;
+  padding: 0 0.5em;
+  .field {
+    @include border-radius(3px);
+    width: 25em;
+    border:1px solid #ccd6dd;
+    padding: 6px;
+  }
 }
