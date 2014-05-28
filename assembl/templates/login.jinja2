@@ -22,22 +22,25 @@
 
 <div class="bx-login">
 
-    <div class="bx-welcome"></div>
+    <div class="bx-welcome">
+
+    </div>
     <div class="bx-signin">
         <form class="form" method="POST">
             <input type="hidden" name="next_view" value="{{next_view}}" />
-            <input type="text" name="identifier" placeholder="{{ gettext('Email or username') }}" autofocus required />
-            <input type="password" name="password" placeholder="{{ gettext('Password') }}" required />
-            <input type="submit" name="login" value="{{ gettext('Enter') }}"/>
+            <input class="field" type="text" name="identifier" placeholder="{{ gettext('Email or username') }}" autofocus required />
+            <input class="field" type="password" name="password" placeholder="{{ gettext('Password') }}" required />
+            <button type="submit">{{ gettext('Enter') }}</button>
         </form>
     </div>
     <div class="bx-signup">
+        <h2>{{ gettext('Join assembl') }}</h2>
         <form class="form" method="POST">
            <input type="hidden" name="next_view" value="{{next_view}}" />
-           <input type="text" name="name" placeholder="{{ gettext('Name') }}" autofocus required />
-           <input type="text" name="email" placeholder="{{ gettext('email') }}" required />
-           <input type="password" name="password" placeholder="{{ gettext('Password') }}" required />
-           <input type="submit" name="register" value="{{ gettext('Register') }}" />
+           <input class="field" type="text" name="name" placeholder="{{ gettext('Name') }}" autofocus required />
+           <input class="field" type="text" name="email" placeholder="{{ gettext('email') }}" required />
+           <input class="field" type="password" name="password" placeholder="{{ gettext('Password') }}" required />
+           <button type="submit" name="register">{{ gettext('Register') }}</button>
         </form>
     </div>
 </div>
