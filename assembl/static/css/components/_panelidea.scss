@@ -2,26 +2,65 @@
 // ===========================
 
 #ideaPanel {
-        #ideaPanel-section-summary > legend > span{
-                background: url(#{$img-dir}/icon/idea.svg) no-repeat left center;
-                padding-left: 2em;
-                background-size: auto 90%;
-        }
-        #ideaPanel-section-segments > legend > span{
-                //background: #fff url(#{$img-dir}/icon/quotes.svg) no-repeat left center;
-                //padding-left: 2em;
-                background-size: auto 90%;
-        }
-        #ideaPanel-section-synthesis > legend > span{
-                //background: #fff url(#{$img-dir}/icon/map.svg) no-repeat left center;
-                //padding-left: 2em;
-                //background-size: auto 90%;
-        }
-}
-#ideaPanel-shorttitle, #ideaPanel-definition {
-    .panel-editablearea {
-        margin: 0px;
-        padding: 4px 10px;
+  #ideaPanel-section-summary > .ideaPanel-shorttitle {
+          background: url(#{$img-dir}/icon/idea.svg) no-repeat left center;
+          padding-left: 2em;
+          background-size: auto 90%;
+  }
+  #ideaPanel-section-segments > legend > span{
+          //background: #fff url(#{$img-dir}/icon/quotes.svg) no-repeat left center;
+          //padding-left: 2em;
+          background-size: auto 90%;
+  }
+  #ideaPanel-section-synthesis > legend > span{
+          //background: #fff url(#{$img-dir}/icon/map.svg) no-repeat left center;
+          //padding-left: 2em;
+          //background-size: auto 90%;
+  }
+
+
+  #ideaPanel-section-summary {
+    #ideaPanel-shorttitle{
+      background-color: rgba(255, 167, 0, 0.2);
+      border-left: 3px solid #FFA700;
     }
+    .wrapper {
+      margin: 15px 0 0 15px;
+      span{
+        color:#AAAAAA;
+      }
+      .panel-editablearea {
+        padding: 0;
+      }
+    }
+    .subIdea-content {
+      width: 100%;
+      padding-left: 15px;
+      background-color: #efefef;
+      border-top: 1px solid #ddd;
+      border-bottom: 1px solid #ddd;
+      p{
+        margin: 0;
+      }
+      .subIdea-list {
+        ul{
+          padding: 0;
+        }
+        li {
+          list-style-type: none;
+          border-left: 3px solid #CCCCCC;
+          padding-left: 5px;
+        }
+      }
+    }
+  }
 
 }
+#ideaPanel-shorttitle, #ideaPanel-definition {
+  .panel-editablearea {
+      margin: 0;
+      padding: 0 5px;
+  }
+}
+
+
