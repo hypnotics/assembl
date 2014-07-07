@@ -400,12 +400,18 @@ appSession.controller('editCtl',
                     $scope.formData.startDate &&
                     $scope.formData.endDate){
 
-                    $scope.formData.startDate = new Date($scope.formData.startDate);
-                    $scope.formData.endDate = new Date($scope.formData.endDate);
+                    var data = {},
+                        notifications = {},
+                        session = {};
 
-                    var data = {};
+                    notifications.startDate = new Date($scope.formData.startDate);
+                    notifications.endDate = new Date($scope.formData.endDate);
 
-                    data.session = $scope.formData;
+                    session.question = $scope.formData.question;
+                    session.jeton = $scope.formData.number;
+
+                    data.session = session;
+                    data.notifications = notifications;
 
                     $http({
                         url: $scope.urlRoot,

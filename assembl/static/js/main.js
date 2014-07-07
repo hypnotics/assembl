@@ -129,21 +129,8 @@ requirejs.config({
 });
 
 
-require([
-    "app",
-    "jquery",
-    "views/ideaList",
-    "views/ideaPanel",
-    "views/segmentList",
-    "views/messageList",
-    "models/synthesis",
-    "views/synthesisPanel",
-    "models/user",
-    "models/segment",
-    "router",
-    "socket",
-    "views/notification"
-], function(app, $, IdeaList, IdeaPanel, SegmentList, MessageList, Synthesis, SynthesisPanel, User, Segment, Router, Socket, Notification){
+require(["app","jquery","views/ideaList","views/ideaPanel","views/segmentList","views/messageList","models/synthesis","views/synthesisPanel","models/user","models/segment","router","socket","views/notification"],
+    function(app, $, IdeaList, IdeaPanel, SegmentList, MessageList, Synthesis, SynthesisPanel, User, Segment, Router, Socket, Notification){
     'use strict';
 
     app.init();
@@ -197,7 +184,7 @@ require([
     app.ideaList.ideas.fetchFromScriptTag('ideas-json');
 
     //init notification bar
-    //app.notification = new Notification();
+    app.notification = new Notification();
 
 
     // Let the game begins...

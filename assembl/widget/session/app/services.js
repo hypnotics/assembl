@@ -32,8 +32,8 @@ appSession.factory('configService', function($q, $http, utils, $location){
                     currentDate = new Date(),
                     userPermission = data.widget.user_permissions;
 
-                console.log(userPermission)
-                console.log(_.contains(userPermission, 'admin_discussion'))
+                //console.log(userPermission)
+                //console.log(_.contains(userPermission, 'admin_discussion'))
 
                 if((currentDate > endDate) &&
                     !_.contains(userPermission, 'admin_discussion')){
