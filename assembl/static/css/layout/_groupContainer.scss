@@ -37,6 +37,10 @@
   }
 }
 
+.groupContent:last-child {
+  border-right: 0 !important;
+}
+
 .groupHeader {
   &.editable {
     height: 25px;
@@ -213,9 +217,16 @@
 .groupPanel .navSidebar .nav span.panel-header-minimize {
   background: url(#{$img-dir}/icon/panel_collapse.svg) center center no-repeat;
   background-size: 18px;
-  position: absolute;
   width: 36px;
   height: 35px;
+}
+.groupPanel .panel-header a.panel-header-minimize {
+  background-color: #eee; /* use same background color as header, so that the header title does not overlap during animation */
+}
+
+
+.groupPanel .navSidebar .nav span.panel-header-minimize {
+  position: absolute;
   right: 0;
 }
 
@@ -250,21 +261,23 @@
 
 /* end temporary */
 
-/*
-.groupPanel.minimized .panelContentsWhenMinimized a.panel-header-minimize {
-  display: none;
-}
-*/
-
 .groupPanel.minimized .panel-header a.panel-header-minimize,
 .groupPanel.minimized .navSidebar .nav span.panel-header-minimize,
 .groupPanel.minimized .panelContentsWhenMinimized.hasNoHeader a.panel-header-minimize {
   display: initial;
   background: url(#{$img-dir}/icon/panel_expand.svg) center center no-repeat;
   background-size: 18px;
-  position: absolute;
   width: 36px;
   height: 35px;
+}
+
+.groupPanel.minimized .panelContentsWhenMinimized.hasNoHeader a.panel-header-minimize {
+  position: absolute;
+  right: 0;
+}
+
+.groupPanel.minimized .panel-header a.panel-header-minimize {
+  float: right;
 }
 
 .group-modal {

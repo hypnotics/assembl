@@ -4,6 +4,7 @@ html, body {
   font-size: $smallFontSize;
   -webkit-font-smoothing: subpixel-antialiased;
   line-height: $baseLineHeight;
+  overflow: auto; /* otherwise, a disabled scrollbar appears sometimes, I don't know why */
 }
 
 @include selection {
