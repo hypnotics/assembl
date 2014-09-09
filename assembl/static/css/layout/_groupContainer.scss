@@ -249,6 +249,16 @@
   float: right;
 }
 
+.groupPanel .panel-header a.panel-header-minimize {
+  background-color: #eee; /* use same background color as header, so that the header title does not overlap during animation */
+}
+
+
+.groupPanel .navSidebar .nav span.panel-header-minimize {
+  position: absolute;
+  right: 0;
+}
+
 .groupPanel.minimized {
   .ideaPanel {
     min-width: initial !important;

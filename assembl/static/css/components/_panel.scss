@@ -167,6 +167,18 @@
       color: $green;
     }
   }
+  .panel-header-title {
+    padding-left: 10px;
+  }
+
+  .panel-header-actions {
+    /*float: right;*/
+    position: absolute;
+    right: 0;
+    top: 0;
+    height: 35px;
+    overflow: hidden;
+  }
 }
 
 // An editable area within the .panel-header
