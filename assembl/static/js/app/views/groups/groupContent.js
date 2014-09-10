@@ -226,6 +226,28 @@ define(function (require) {
                 if (shouldBeHidden)
                     aPanelSpec.set('hidden', true);
             });
+        },
+
+        /**
+         * @params list of panel names
+         */
+        ensurePanelsMinimized: function () {
+            console.log("ensurePanelsMinimized()");
+            var that = this;
+            var args = Array.prototype.slice.call(arguments);
+            var panels = this.model.get('panels');
+            // add missing panels
+            this.model.ensurePanelsAt(args, 1);
+            // show and hide panels
+            _.each(this.model.get('panels').models, function (aPanelSpec) {
+                if (aPanelSpec.get('type') == 'navSidebar')
+                    return;
+                var shouldBeMinimized = _.contains(args, aPanelSpec.get('type'));
+                if (shouldBeMinimized){
+                    aPanelSpec.set('minimized', true);
+                    //aPanelSpec.minimizePanel();
+                }
+            });
         }
     });
 

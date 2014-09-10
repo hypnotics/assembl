@@ -269,17 +269,26 @@ define(function (require) {
             
             var used_panels = $("#groupsContainer .groupContent .groupBody .groupPanel:visible:not(.minimized)");
             var total_grid_unit_width = 0;
-            var total_available_pixel_width = window_width - extra_pixels;//0;
+            var total_available_pixel_width = window_width - extra_pixels;
             used_panels.each(function(index){
                 // extract int 4 from string "panelGridWidth-4", and sum up on all panels
                 total_grid_unit_width += parseInt($(this).attr("class").match(/panelGridWidth-(\d+)/)[1]);
                 //total_available_pixel_width += $(this).width();
             });
             //console.log("total_available_pixel_width:",total_available_pixel_width);
+            
+            // el is a jQuery selection
+            var updateElementWidth = function(el){
+                var panel_unit_width = parseInt(el.attr("class").match(/panelGridWidth-(\d+)/)[1]);
+                var ratio = panel_unit_width / total_grid_unit_width;
+                var targetWidth = ratio * total_available_pixel_width;
+                el.animate({ "width": targetWidth+"px"}, 1000);
+            };
+            
 
             // detect wether the UI is in the following configuration: single group which has N+I+M
             // in this case, resizing the idea panel does not resize the navigation panel
-            var applyGeneralCase = true;
+            //var applyGeneralCase = true;
             if ( elGroupContent.length == 1
                 && elVisiblePanels.length == 3
                 && !Ctx.userCanChangeUi()
@@ -290,43 +299,26 @@ define(function (require) {
                 var messages_panel = this.$el.nextAll(":visible:not(.minimized)").last();
                 var idea_panel = this.$el;
                 var navigation_panel_width = navigation_panel.width();
-                total_available_pixel_width -= navigation_panel_width;
-                navigation_panel.width(navigation_panel_width);
+                
+                console.log("nav panel width:",navigation_panel.css('width'));
+                if ( !navigation_panel.hasClass('fixedwidth') ){ // if we set it everytime, we loose 1px each time, I don't know why
+                    navigation_panel.addClass('fixedwidth');
+                    navigation_panel.width(navigation_panel_width);
+                }
                 if ( this.model.get('minimized') ){
+                    total_available_pixel_width -= navigation_panel_width;
                     //total_available_pixel_width -= 40; // maybe not?
                     messages_panel.animate({ "width": total_available_pixel_width+"px"}, 1000);
-                    applyGeneralCase = false;
                 } else {
-                    /*
-                    //var targetWidth = 
-                    var targetWidth = total_available_pixel_width/2;
-                    idea_panel.animate({ "width": (total_available_pixel_width/2)+"px"}, 1000);
-                    messages_panel.animate({ "width": targetWidth+"px"}, 1000);
-                    */
-                    var el = idea_panel;
-                    var panel_unit_width = parseInt(el.attr("class").match(/panelGridWidth-(\d+)/)[1]);
-                    var ratio = panel_unit_width / total_grid_unit_width;
-                    var targetWidth = ratio * total_available_pixel_width;
-                    el.animate({ "width": targetWidth+"px"}, 1000);
-
-                    el = messages_panel;
-                    panel_unit_width = parseInt(el.attr("class").match(/panelGridWidth-(\d+)/)[1]);
-                    ratio = panel_unit_width / total_grid_unit_width;
-                    targetWidth = ratio * total_available_pixel_width;
-                    el.animate({ "width": targetWidth+"px"}, 1000);
+                    updateElementWidth(idea_panel);
+                    updateElementWidth(messages_panel);
                 }
             }
             else {
-            //if ( applyGeneralCase === true ) {
                 //console.log("we are not in the N+I+M case");
                 used_panels.each(function(index){
                     console.log("this:",$(this));
-                    var panel_unit_width = parseInt($(this).attr("class").match(/panelGridWidth-(\d+)/)[1]);
-                    var ratio = panel_unit_width / total_grid_unit_width;
-                    //console.log("ratio:",ratio);
-                    var targetWidth = ratio * total_available_pixel_width;
-                    //console.log("targetWidth:",targetWidth);
-                    $(this).animate({ "width": targetWidth+"px"}, 1000);
+                    updateElementWidth($(this));
                 });
             }
             
