@@ -7,7 +7,8 @@ define(function(require){
         defaults: {
             type: '',
             hidden: false,
-            locked: false
+            locked: false,
+            minimized: false
         },
         validate: function(viewsFactory) {
             return viewsFactory(this) !== undefined;

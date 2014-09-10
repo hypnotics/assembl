@@ -1,6 +1,7 @@
 define(function (require) {
 
     var Marionette = require('marionette'),
+        Assembl = require('modules/assembl')
         panelClassByTypeName = require('objects/viewsFactory'),
         Ctx = require('modules/context'),
         AssemblPanel = require('views/assemblPanel'),
@@ -34,10 +35,10 @@ define(function (require) {
         _unlockCallbackQueue: {},
         _stateButton: null,
         _minimizedStateButton: null,
-        _originalWidth: null,
-        _nextElementOriginalWidth: null,
+        _minimizedPanelWidth: 40,
 
         initialize: function (options) {
+            console.log("options:",options);
             var contentClass = panelClassByTypeName(options.contentSpec);
             this.groupContent = options.groupContent;
             this.contentsView = new contentClass({
@@ -47,7 +48,15 @@ define(function (require) {
             this.gridSize = this.contentsView.gridSize || AssemblPanel.prototype.DEFAULT_GRID_SIZE;
             Marionette.bindEntityEvents(this, this.model, this.modelEvents);
 
-            this.model.set('minimized', false); // TODO: memorize previous state and apply it
+            //this.model.set('minimized', false); // TODO: memorize previous state and apply it
+            if ( this.model.get('minimized') === true ){
+                console.log("initialize: this panel is minimized");
+                this.$el.width(this._minimizedPanelWidth);
+                var that = this;
+                setTimeout(function(){
+                    that.minimizePanel();
+                }, 1000);
+            }
         },
         serializeData: function () {
             return {
@@ -72,12 +81,23 @@ define(function (require) {
             this.model.collection.remove(this.model);
         },
         onRender: function () {
+            console.log("onRender()");
             this.setGridSize(this.gridSize);
             this.contents.show(this.contentsView);
             this.setHidden();
             Ctx.initTooltips(this.$el);
             this._stateButton = this.$('.lock-group i');
             this._minimizedStateButton = this.$('.panel-header-minimize');
+            if ( this.model.get('minimized') === true ){
+                console.log("onRender: this panel is minimized");
+                /*this.$el.width(this._minimizedPanelWidth);
+                // TODO: maybe if several panels are minimized initially, we should resize all the other panels only once
+                var that = this;
+                setTimeout(function(){
+                    that.minimizePanel();
+                }, 1000);*/
+                
+            }
         },
         setHidden: function () {
             if (this.model.get('hidden')) {
@@ -154,8 +174,10 @@ define(function (require) {
         },
 
         toggleMinimize: function(evt) {
+            console.log("toggleMinimize()");
             evt.stopPropagation();
             evt.preventDefault();
+            console.log("minimized:", this.model.get('minimized'));
             this.model.set('minimized', !this.isPanelMinimized());
             this.applyMinimizationState();
         },
@@ -200,37 +222,12 @@ define(function (require) {
             this.$el.find("header span.panel-header-title").show();
             this.$el.children(".panelContentsWhenMinimized").hide();
 
-            this.resizeAllPanels();
-        },
-
-        unminimizePanelOld: function () {
-            var compensateElement = this.$el.nextAll(":visible:not(.minimized)").last();
-            this.model.set('minimized', false);
-            this._minimizedStateButton
-                //.addClass('icon-collapse')
-                //.removeClass('icon-expand')
-                .attr('data-original-title', i18n.gettext('Minimize panel'));
-
-            //this.$el.css("width", this._originalWidth+"px");
-            this.$el.animate({ "width": this._originalWidth+"px"}, 1000);
-            //compensateElement.css("width", this._nextElementOriginalWidth+"px");
-            compensateElement.animate({"width": this._nextElementOriginalWidth+"px"}, 1000);
-            var el = this.$el;
-            setTimeout(function(){
-                el.removeClass("minimized");
-            }, 200);
-            setTimeout(function(){ // reset width
-                el.css("width", "");
-                //compensateElement.css("width", "");
-            }, 1050);
-
-            this.$el.children(".panelContents").show();
-            this.$el.find("header span.panel-header-title").show();
-            this.$el.children(".panelContentsWhenMinimized").hide();
+            //this.resizeAllPanels();
+            Assembl.groupContainer.currentView.resizeAllPanels();
         },
 
         minimizePanel: function () {
-            var targetWidth = 40;
+            var targetWidth = this._minimizedPanelWidth;
             this.$el.animate({ "width": targetWidth+"px"}, 1000);
             this.model.set('minimized', true);
             this._minimizedStateButton
@@ -244,114 +241,8 @@ define(function (require) {
             this.$el.children(".panelContentsWhenMinimized").show();
 
 
-            this.resizeAllPanels();
-        },
-
-        resizeAllPanels: function(){
-            var elGroupContent = $("#groupsContainer .groupContent");
-            var elVisiblePanels = $("#groupsContainer .groupContent .groupBody .groupPanel:visible");
-            var elMinimizedPanels = $("#groupsContainer .groupContent .groupBody .groupPanel.minimized:visible");
-            var extra_pixels = 
-                elGroupContent.length * 3 // left border of each .groupContent
-                + Math.max(0, elGroupContent.length -1) * 2 // right border of each .groupContent except the last one
-                //+ elVisiblePanels.length * 3 // right border of each visible .groupPanel
-                + elMinimizedPanels.length * 40 // width of each minimized panel (without borders)
-            ;
-            /*console.log("extra_pixels:",extra_pixels);
-            console.log("elGroupContent:",elGroupContent);
-            console.log("elGroupContent.length:",elGroupContent.length);
-            console.log("elVisiblePanels:",elVisiblePanels);
-            console.log("elVisiblePanels.length:",elVisiblePanels.length);
-            console.log("elMinimizedPanels:",elMinimizedPanels);
-            console.log("elMinimizedPanels.length:",elMinimizedPanels.length);*/
-            var window_width = $(window).width();
-            //var total_grid_width = parseInt($("#groupsContainer").attr("class").match(/\d+/)[0]);
-            
-            var used_panels = $("#groupsContainer .groupContent .groupBody .groupPanel:visible:not(.minimized)");
-            var total_grid_unit_width = 0;
-            var total_available_pixel_width = window_width - extra_pixels;
-            used_panels.each(function(index){
-                // extract int 4 from string "panelGridWidth-4", and sum up on all panels
-                total_grid_unit_width += parseInt($(this).attr("class").match(/panelGridWidth-(\d+)/)[1]);
-                //total_available_pixel_width += $(this).width();
-            });
-            //console.log("total_available_pixel_width:",total_available_pixel_width);
-            
-            // el is a jQuery selection
-            var updateElementWidth = function(el){
-                var panel_unit_width = parseInt(el.attr("class").match(/panelGridWidth-(\d+)/)[1]);
-                var ratio = panel_unit_width / total_grid_unit_width;
-                var targetWidth = ratio * total_available_pixel_width;
-                el.animate({ "width": targetWidth+"px"}, 1000);
-            };
-            
-
-            // detect wether the UI is in the following configuration: single group which has N+I+M
-            // in this case, resizing the idea panel does not resize the navigation panel
-            //var applyGeneralCase = true;
-            if ( elGroupContent.length == 1
-                && elVisiblePanels.length == 3
-                && !Ctx.userCanChangeUi()
-                && $("#groupsContainer .groupContent .groupBody .groupPanel .ideaPanel").length
-            ) {
-                console.log("we are in the N+I+M case");
-                var navigation_panel = $("#groupsContainer .groupContent .groupBody .groupPanel:first-child");
-                var messages_panel = this.$el.nextAll(":visible:not(.minimized)").last();
-                var idea_panel = this.$el;
-                var navigation_panel_width = navigation_panel.width();
-                
-                console.log("nav panel width:",navigation_panel.css('width'));
-                if ( !navigation_panel.hasClass('fixedwidth') ){ // if we set it everytime, we loose 1px each time, I don't know why
-                    navigation_panel.addClass('fixedwidth');
-                    navigation_panel.width(navigation_panel_width);
-                }
-                if ( this.model.get('minimized') ){
-                    total_available_pixel_width -= navigation_panel_width;
-                    //total_available_pixel_width -= 40; // maybe not?
-                    messages_panel.animate({ "width": total_available_pixel_width+"px"}, 1000);
-                } else {
-                    updateElementWidth(idea_panel);
-                    updateElementWidth(messages_panel);
-                }
-            }
-            else {
-                //console.log("we are not in the N+I+M case");
-                used_panels.each(function(index){
-                    console.log("this:",$(this));
-                    updateElementWidth($(this));
-                });
-            }
-            
-            $("#groupsContainer .groupContent").each(function(index){
-                $(this).width("auto");
-            });
-        },
-
-        minimizePanelOld: function () {
-            var compensateElement = this.$el.nextAll(":visible:not(.minimized)").last();
-            this._originalWidth = this.$el.width();
-            this._nextElementOriginalWidth = compensateElement.width();
-            
-            this.model.set('minimized', true);
-            this._minimizedStateButton
-                //.addClass('icon-expand')
-                //.removeClass('icon-collapse')
-                .attr('data-original-title', i18n.gettext('Maximize panel'));
-
-            
-            var targetWidth = 40;
-            var currentWidth = this.$el.width();
-            var diffWidth = currentWidth - targetWidth;
-            var nextElementCurrentWidth = compensateElement.width();
-            //this.$el.css("width", targetWidth+"px");
-            this.$el.animate({ "width": targetWidth+"px"}, 1000);
-            //compensateElement.css("width", (nextElementCurrentWidth+diffWidth) + "px");
-            compensateElement.animate({ "width": (nextElementCurrentWidth+diffWidth) + "px"}, 1000);
-            this.$el.addClass("minimized");
-
-            this.$el.children(".panelContents").hide();
-            this.$el.find("header span.panel-header-title").hide();
-            this.$el.children(".panelContentsWhenMinimized").show();
+            //this.resizeAllPanels();
+            Assembl.groupContainer.currentView.resizeAllPanels();
         },
 
         setButtonState: function (dom) {

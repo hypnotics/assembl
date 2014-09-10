@@ -78,6 +78,7 @@ define(function (require) {
         },
 
         resetDebateState: function () {
+            console.log("resetDebateState()");
             if (this.getNavigationSpec()) {
                 this.model.set('navigationState', 'debate');
                 this.removePanels('homePanel');
@@ -94,13 +95,16 @@ define(function (require) {
         },
 
         resetMessagePanel: function () {
+            console.log("resetMessagePanel()");
             var nav = this.getNavigationSpec();
             if (ctx.getCurrentIdea() == undefined) {
                 this.setPanelWidthByType('messageList',
                     AssemblPanel.prototype.CONTEXT_PANEL_GRID_SIZE); // idea + message
                 if (nav && this.model.get('navigationState') == 'debate') {
                     this.ensurePanelsHidden('ideaPanel');
+                    //this.ensurePanelsMinimized('ideaPanel');
                     this.ensurePanelsVisible('messageList');
+                    //this.ensurePanelsVisible('messageList','ideaPanel');
                 }
             } else {
                 this.setPanelWidthByType('messageList',
