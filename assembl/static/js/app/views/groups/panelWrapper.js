@@ -223,7 +223,6 @@ define(function (require) {
             /*this.$el.children(".panelContents").show();*/
             this.$el.find("header span.panel-header-title").show();
             this.$el.children(".panelContentsWhenMinimized").hide();
-
             this.resizeAllPanels();
         },
 
@@ -258,7 +257,7 @@ define(function (require) {
         },
 
         minimizePanel: function () {
-            var targetWidth = 40;
+            var targetWidth = this._minimizedPanelWidth;
             this.$el.animate({ "width": targetWidth+"px"}, 1000);
             this.model.set('minimized', true);
             this._minimizedStateButton
@@ -270,7 +269,6 @@ define(function (require) {
             this.$el.children(".panelContents").hide();
             this.$el.find("header span.panel-header-title").hide();
             this.$el.children(".panelContentsWhenMinimized").show();
-
 
             this.resizeAllPanels();
         },
@@ -378,7 +376,6 @@ define(function (require) {
             this.$el.children(".panelContents").hide();
             this.$el.find("header span.panel-header-title").hide();
             this.$el.children(".panelContentsWhenMinimized").show();
-
 
             //this.resizeAllPanels();
             Assembl.groupContainer.currentView.resizeAllPanels();
