@@ -59,6 +59,7 @@ define(function (require) {
             }
         },
         serializeData: function () {
+
             return {
                 hideHeader: this.contentsView.hideHeader || false,
                 title: this.contentsView.getTitle(),
@@ -68,6 +69,7 @@ define(function (require) {
                 hasLock: this.contentsView.lockable,
                 hasMinimize: this.contentsView.minimizeable || Ctx.userCanChangeUi(),
                 hasClose: this.contentsView.closeable,
+                icon: this.getIcon()
             }
         },
         resetTitle: function (newTitle) {
@@ -271,6 +273,35 @@ define(function (require) {
                     }
                 }
             }
+        },
+
+        getIcon: function () {
+            var type = this.contentsView.panelType,
+                icon = '';
+
+            switch (type) {
+                case'ideaPanel':
+                    icon = 'icon-idea';
+                    break;
+                case'messageList':
+                    icon = 'icon-comment';
+                    break;
+                case'clipboard':
+                    // ne need because of resetTitle - segment
+                    break;
+                case'synthesisPanel':
+                    icon = 'icon-doc';
+                    break;
+                case'homePanel':
+                    break;
+                case'ideaList':
+                    icon = 'icon-discuss';
+                    break;
+                default:
+                    break;
+            }
+
+            return icon;
         }
     });
     return PanelWrapper;
