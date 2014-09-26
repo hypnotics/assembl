@@ -155,10 +155,10 @@
           bottom: 0;
         }
         background-color: $purple4;
-
       }
 
       .synthesisNavPanel {
+        background-color: $purple4;
         .synthesisListHeader {
           padding: 15px;
           position: absolute;
@@ -169,6 +169,8 @@
 
           li:hover {
             cursor: pointer;
+            background-color: $green1;
+            border-right: 4px solid $green;
           }
           li {
             margin: 0;
@@ -179,6 +181,7 @@
             border-bottom: 1px solid #ddd;
             border-top: none;
             position: relative;
+            border-right: 4px solid transparent;
 
             .title {
               vertical-align: middle;
@@ -194,10 +197,16 @@
             }
           }
           li.selected {
-            background: $blue;
+            background-color: $green1;
+            border-right: 4px solid $green;
           }
         }
       }
+
+      .homeNavPanel {
+        background-color: $purple4;
+      }
+
     }
   }
 
