@@ -126,12 +126,10 @@
           text-decoration: none;
           background-color: $purple3;
           color: $white;
-          //line-height: 40px;
           padding-left: 10px;
           font-size: $smallFontSize;
           &.active {
             background-color: $purple5;
-            color: $green;
             i:not(.icon-arrowleft) {
               color: $white;
             }
@@ -148,17 +146,20 @@
         .second-level.home {
           overflow: auto;
         }
+
+        .second-level.synthesis,
+        .second-level.debate,
+        .second-level.home {
+          background-color: $purple4;
+        }
       }
       .debate {
         .panel-body {
           top: 0;
           bottom: 0;
         }
-        background-color: $purple4;
       }
-
       .synthesisNavPanel {
-        background-color: $purple4;
         .synthesisListHeader {
           padding: 15px;
           position: absolute;
@@ -202,11 +203,6 @@
           }
         }
       }
-
-      .homeNavPanel {
-        background-color: $purple4;
-      }
-
     }
   }
 
