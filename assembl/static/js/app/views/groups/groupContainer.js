@@ -59,6 +59,26 @@ define(function (require) {
             var elGroupContent = $("#groupsContainer .groupContent");
             var elVisiblePanels = $("#groupsContainer .groupContent .groupBody .groupPanel:visible");
             var elMinimizedPanels = $("#groupsContainer .groupContent .groupBody .groupPanel.minimized:visible");
+
+            // detect wether the UI is in the following configuration: single group which exactly has panels Navigation + Idea + Messages
+            // in this case, resizing the idea panel does not resize the navigation panel
+            var specialCase = false;
+            if ( elGroupContent.length == 1
+                && elVisiblePanels.length == 3
+                && !Ctx.userCanChangeUi()
+                && $("#groupsContainer .groupContent .groupBody .groupPanel .ideaPanel").length
+            ) {
+                console.log("we are in the N+I+M case");
+                specialCase = true;
+            }
+
+            // extract int 4 from string "panelGridWidth-4"
+            // el: jQuery selection
+            var getPanelGridSize = function(el){
+                return parseInt(el.attr("class").match(/panelGridWidth-(\d+)/)[1]);
+            };
+
+
             var extra_pixels = 
                 elGroupContent.length * 3 // left border of each .groupContent
                 + Math.max(0, elGroupContent.length -1) * 2 // right border of each .groupContent except the last one
@@ -76,33 +96,25 @@ define(function (require) {
             //var total_grid_width = parseInt($("#groupsContainer").attr("class").match(/\d+/)[0]);
             
             var used_panels = $("#groupsContainer .groupContent .groupBody .groupPanel:visible:not(.minimized)");
+            console.log("used_panels:", used_panels);
             var total_grid_unit_width = 0;
-            var total_available_pixel_width = window_width - extra_pixels;
-            used_panels.each(function(index){
-                // extract int 4 from string "panelGridWidth-4", and sum up on all panels
-                total_grid_unit_width += parseInt($(this).attr("class").match(/panelGridWidth-(\d+)/)[1]);
-                //total_available_pixel_width += $(this).width();
-            });
-            //console.log("total_available_pixel_width:",total_available_pixel_width);
+            var total_available_pixel_width = 0;//window_width - extra_pixels;
+            
             
             // el is a jQuery selection
             var updateElementWidth = function(el){
-                var panel_unit_width = parseInt(el.attr("class").match(/panelGridWidth-(\d+)/)[1]);
+                console.log("updateElementWidth el:",el);
+                var panel_unit_width = getPanelGridSize(el);
                 var ratio = panel_unit_width / total_grid_unit_width;
                 var targetWidth = ratio * total_available_pixel_width;
+                console.log("targetWidth: ", targetWidth);
                 el.animate({ "width": targetWidth+"px"}, animation_time);
             };
             
 
-            // detect wether the UI is in the following configuration: single group which has N+I+M
-            // in this case, resizing the idea panel does not resize the navigation panel
-            //var applyGeneralCase = true;
-            /*if ( elGroupContent.length == 1
-                && elVisiblePanels.length == 3
-                && !Ctx.userCanChangeUi()
-                && $("#groupsContainer .groupContent .groupBody .groupPanel .ideaPanel").length
-            ) {
-                console.log("we are in the N+I+M case");
+            if ( specialCase )
+            {
+                /*
                 var navigation_panel = $("#groupsContainer .groupContent .groupBody .groupPanel:first-child");
                 var messages_panel = this.$el.nextAll(":visible:not(.minimized)").last();
                 var idea_panel = this.$el;
@@ -122,17 +134,43 @@ define(function (require) {
                     updateElementWidth(idea_panel);
                     updateElementWidth(messages_panel);
                 }
-            }
-            else {*/
-                //console.log("we are not in the N+I+M case");
+                */
+                
+
+
+                used_panels = used_panels.slice(1); // remove the navigation panel from the set of panels to resize
+
                 used_panels.each(function(index){
-                    console.log("this:",$(this));
-                    updateElementWidth($(this));
+                    total_grid_unit_width += getPanelGridSize($(this));
+                    total_available_pixel_width += $(this).width();
                 });
-            /*}*/
+                
+                //var navigationPanel = $("#groupsContainer .groupContent .groupBody .groupPanel:first-child");
+                //total_available_pixel_width -= (navigationPanel.width() + 3);
+                //console.log("navigationPanel.width(): ", navigationPanel.width());
+                //total_grid_unit_width -= getPanelGridSize(navigationPanel);
+                
+                
+            }
+            else
+            {
+                total_available_pixel_width = window_width - extra_pixels;
+                used_panels.each(function(index){
+                    total_grid_unit_width += getPanelGridSize($(this));
+                    //total_available_pixel_width += $(this).width();
+                });
+                //console.log("total_available_pixel_width:",total_available_pixel_width);
+            }
+
+
+            used_panels.each(function(index){
+                //console.log("this:",$(this));
+                updateElementWidth($(this));
+            });
+
             
             $("#groupsContainer .groupContent").each(function(index){
-                $(this).width("auto");
+                //$(this).width("auto");
             });
         }
     });
