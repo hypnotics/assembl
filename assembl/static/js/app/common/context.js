@@ -13,7 +13,7 @@ define(['../app', 'jquery', '../utils/permissions', '../utils/roles', 'moment', 
              * Send debugging output to console.log to observe when views render
              * @type {boolean}
              */
-            this.debugRender = false;
+            this.debugRender = true;
 
             /**
              * Send debugging output to console.log to observe socket input

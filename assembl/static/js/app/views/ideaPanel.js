@@ -12,13 +12,14 @@ define(['app', 'common/context', 'utils/i18n', 'views/editableField', 'views/cke
             gridSize: AssemblPanel.prototype.IDEA_PANEL_GRID_SIZE,
             minWidth: 270,
             regions: {
-                segmentList: "#idea-container"
+                //segmentList: ".postitlist"
             },
             initialize: function (options) {
+                Object.getPrototypeOf(Object.getPrototypeOf(this)).initialize(options);
+                var that = this;
+
                 this.editingDefinition = false;
                 this.editingTitle = false;
-
-                var that = this;
 
                 if (!this.model) {
                     this.model = null;
@@ -76,11 +77,17 @@ define(['app', 'common/context', 'utils/i18n', 'views/editableField', 'views/cke
             inspiration_widget_configure_url: null,
 
             resetView: function () {
+              console.log("ideaPanel::resetView called");
+              if(this.segmentList !== undefined) {
                 this.segmentList.reset();
+              }
+              else {
+                console.log("ideaPanel::resetView called, but region doesn't exist");
+              }
             },
 
             /**
-             * This is not inside the template beacuse babel wouldn't extract it in
+             * This is not inside the template because babel wouldn't extract it in
              * the pot file
              */
             getSubIdeasLabel: function (subIdeas) {
@@ -98,8 +105,8 @@ define(['app', 'common/context', 'utils/i18n', 'views/editableField', 'views/cke
             getExtractsLabel: function () {
                 var len = 0;
 
-                if (this.extractList) {
-                    len = this.extractList.models.length;
+                if (this.extractListSubset) {
+                    len = this.extractListSubset.models.length;
                 }
                 if (len == 0) {
                     if (Ctx.getCurrentUser().can(Permissions.ADD_EXTRACT)) {
@@ -176,6 +183,7 @@ define(['app', 'common/context', 'utils/i18n', 'views/editableField', 'views/cke
             },
 
             onBeforeRender: function () {
+              console.log("onBeforeRender called");
                 /*
                  FIXME: This method is sometimes called several times after the selection of an idea in the table of ideas. So maybe this code should go somewhere else (it should be called only once after each idea selection)
                  */
@@ -183,11 +191,17 @@ define(['app', 'common/context', 'utils/i18n', 'views/editableField', 'views/cke
                     /**
                      * We need more information about the initial model -> add contributors
                      * */
+                  console.log("onBeforeRender fetching models");
                     this.model.fetch({ data: $.param({ view: 'contributors'}) });
 
 
                     this.populateAssociatedWidgetData();
                 }
+                console.log("onBeforeRender finished");
+            },
+            
+            onAfterRender: function () {
+              console.log("onAfterRender called");
             },
 
             clearWidgetDataAssociatedToIdea: function () {
@@ -252,6 +266,7 @@ define(['app', 'common/context', 'utils/i18n', 'views/editableField', 'views/cke
                 if (Ctx.debugRender) {
                     console.log("ideaPanel::onRender()");
                 }
+                console.debug(this.$el);
                 Ctx.removeCurrentlyDisplayedTooltips(this.$el);
 
                 Ctx.initTooltips(this.$el);
@@ -262,7 +277,7 @@ define(['app', 'common/context', 'utils/i18n', 'views/editableField', 'views/cke
                 if (this.model) {
                     // display only important extract for simple user
                     if (!Ctx.getCurrentUser().can(Permissions.ADD_EXTRACT)) {
-                        this.extractList.models = _.filter(this.extractList.models, function (model) {
+                        this.extractListSubset.models = _.filter(this.extractListSubset.models, function (model) {
                             return model.get('important');
                         });
                     }
@@ -307,7 +322,7 @@ define(['app', 'common/context', 'utils/i18n', 'views/editableField', 'views/cke
                 var that = this,
                     collectionManager = new CollectionManager();
 
-                if (this.extractList) {
+                if (this.extractListSubset) {
                     $.when(
                         collectionManager.getAllExtractsCollectionPromise(),
                         collectionManager.getAllUsersCollectionPromise(),
@@ -315,7 +330,7 @@ define(['app', 'common/context', 'utils/i18n', 'views/editableField', 'views/cke
                     ).then(
                         function (allExtractsCollection, allUsersCollection, allMessagesCollection) {
                             that.extractListView = new SegmentList.SegmentListView({
-                                collection: that.extractList,
+                                collection: that.extractListSubset,
                                 allUsersCollection: allUsersCollection,
                                 allMessagesCollection: allMessagesCollection
                             });
@@ -440,21 +455,25 @@ define(['app', 'common/context', 'utils/i18n', 'views/editableField', 'views/cke
                 var that = this,
                     collectionManager = new CollectionManager();
 
+                console.log("setIdeaModel called with", idea);
                 if (idea !== this.model) {
                     if (this.model !== null) {
                         this.stopListening(this.model, 'change replacedBy acquiredId');
                     }
                     this.model = idea;
-                    if (this.extractList) {
-                        this.stopListening(this.extractList);
-                        this.extractList = null;
+                    console.log("this.extractListSubset before setIdea:", this.extractListSubset);
+                    if (this.extractListSubset) {
+                      console.log("Stop listening to extractListSubset");
+                        this.stopListening(this.extractListSubset);
+                        this.extractListSubset = null;
                     }
                     if (this.extractListView) {
                         this.extractListView.unbind();
                         this.extractListView = null;
                     }
+                    console.log("setIdeaModel: this.model is now", this.model);
                     if (this.model !== null) {
-                        this.resetView();
+                        //this.resetView();
 
                         this.listenTo(this.model, 'acquiredId', function (m) {
                             // model has acquired an ID. Reset everything.
@@ -466,11 +485,15 @@ define(['app', 'common/context', 'utils/i18n', 'views/editableField', 'views/cke
                             //Ctx.openPanel(assembl.ideaPanel);
                             $.when(collectionManager.getAllExtractsCollectionPromise()).then(
                                 function (allExtractsCollection) {
-                                    that.extractList = new SegmentList.IdeaSegmentList([], {
+                                  console.log("CANARI");
+                                    that.extractListSubset = new SegmentList.IdeaSegmentListSubset([], {
                                         parent: allExtractsCollection,
                                         ideaId: that.model.id
                                     });
-                                    that.listenTo(that.extractList, "add remove reset change", that.renderTemplateGetExtractsLabel);
+                                    console.log("CANARI2");
+                                    that.listenTo(that.extractListSubset, "add remove reset change", that.renderTemplateGetExtractsLabel);
+                                    console.log("indeaPanel about to re-render");
+                                    //console.log("The region:", that.segmentList);
                                     that.render();
                                 });
                         }
@@ -478,8 +501,8 @@ define(['app', 'common/context', 'utils/i18n', 'views/editableField', 'views/cke
                         //TODO: More sophisticated behaviour here, depending
                         //on if the panel was opened by selection, or by something else.
                         //app.closePanel(app.ideaPanel);
-                        this.resetView();
-                        this.render();
+                        //this.resetView();
+                        //this.render();
                     }
                 }
             },
