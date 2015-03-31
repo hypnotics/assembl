@@ -23,8 +23,6 @@ def upgrade(pyramid_env):
     with context.begin_transaction():
         op.add_column('abstract_agent_account',
             sa.Column('full_name', CoerceUnicode))
-        op.add_column('idprovider_agent_account',
-            sa.Column('oauth_token', sa.String))
 
     # Do stuff with the app's models here.
     from assembl import models as m
@@ -36,4 +34,3 @@ def upgrade(pyramid_env):
 def downgrade(pyramid_env):
     with context.begin_transaction():
         op.drop_column('abstract_agent_account', 'full_name')
-        op.drop_column('idprovider_agent_account', 'oauth_token')
