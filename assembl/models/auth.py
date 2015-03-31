@@ -309,7 +309,7 @@ class AbstractAgentAccount(Base):
     # Note: we could also have a FOAF.mbox, but we'd have to make
     # them into URLs with mailto:
 
-    full_name = Column(CoerceUnicode(100))
+    full_name = Column(CoerceUnicode(512))
 
     def signature(self):
         "Identity of signature implies identity of underlying account"
@@ -462,21 +462,11 @@ class IdentityProviderAccount(AbstractAgentAccount):
     picture_url = Column(String(300))
     profile_i = relationship(AgentProfile, backref='identity_accounts')
 
-    oauth_token = Column(String(1024))
-
     def __init__(self, profile_info_json=None, **kwargs):
         if profile_info_json is not None:
             kwargs['profile_info'] = json.dumps(profile_info_json)
         super(IdentityProviderAccount, self).__init__(**kwargs)
         self.interpret_profile(self.profile_info_json)
-
-    @property
-    def token(self):
-        return self.oauth_token
-
-    @token.setter
-    def token(self, access_token):
-        self.oauth_token = access_token
 
     def signature(self):
         return ('idprovider_agent_account', self.provider_id, self.username,
