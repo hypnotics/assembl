@@ -15,17 +15,17 @@ from .auth import (
     IdentityProviderAccount,
 )
 
+import facebook
 from virtuoso.alchemy import CoerceUnicode
 from ..lib.sqla import get_session_maker, Base
-from sqlalchemy.orm import relationhip, backref
-from .generic import PostSource
-from .post import ImportedPost
+from sqlalchemy.orm import relationship, backref
+from .generic import PostSource, Content
+from .post import Post, ImportedPost
 from ..tasks.source_reader import PullSourceReader
 from ..lib.config import get_config
 from datetime import datetime
 import dateutil.parser
 from urlparse import urlparse, parse_qs
-import facebook
 
 # Follow a similar model to feed_parsing
 
@@ -35,47 +35,93 @@ import facebook
 #       related, direct to the login_url
 
 
-class FacebookAPI(Object):
-    def __init__(self, version):
+API_VERSION_USED = 2.2
+DEFAULT_TIMEOUT = 30 #seconds
+
+class FacebookAPI(object):
+    def __init__(self, version, user_token=None):
         config = get_config()
         self._version = str(version) if isinstance(version, int) else version
-        self._app_key = config['consumer_key']
-        self._app_secret = config['consumer_secret']
-        self._app_access_token = None
-        self.api = facebook.GraphAPI(access_token=access_token,
-                                     version=version)
+        self._app_id = config['facebook.consumer_key']
+        self._app_secret = config['facebook.consumer_secret']
+        self.api = facebook.GraphAPI(version=self._version,
+                                     timeout=DEFAULT_TIMEOUT)
+        self._app_access_token = self.api.get_app_access_token(
+            self._app_id, self._app_secret)
+        if not user_token:
+            self.api.access_token(self._app_access_token, self._app_secret)
+        else:
+            self.api.access_token(user_token, self._app_secret)
         return self.api
 
     @property
-    def app_key(self):
-        return self._app_key
+    def app_id(self):
+        return self._app_id
 
     @property
     def app_secret(self):
         return self._app_secret
 
     @property
-    def access_token(self):
-        if not self._app_access_token:
-            access_token = self.api.get_app_access_token(
-                self._app_key, self._app_secret)
-            self._app_access_token = access_token
+    def app_access_token(self):
         return self._app_access_token
 
+    def update_token(self,token):
+        self.api.access_token(token, self._app_secret)
 
-class FacebookParser(Object):
+    def extend_token(self):
+        res = self.api.extend_access_token(self._app_id, self._app_secret)
+        return res['access_token'], res['expires']
+
+
+class FacebookParser(object):
     def __init__(self, api):
         print "I just created an API Endpoint"
         self.api = api
         self._pending_users = {}
         self.user_flush_state = None
 
+    def get_app_id(self):
+        return self.api.app_id
+
     def get_object_info(self,object_id):
         return self.api.get_object(object_id)
 
+    # Define endpoint choice, 'feed', 'posts', etc
+    def get_object_wall_2(self,object_id,**kwargs):
+        if 'wall' in kwargs:
+            endpoint = kwargs.pop('endpoint', None)
+            resp = self.api.get_connection(object_id, endpoint, **kwargs)
+            if 'next' in resp['paging']:
+                return resp['data'], resp['paging']['next']
+            else:
+                return resp['data'], None
+
+    # This is completely non-generic and only works for groups
     def get_object_wall(self, object_id, **args):
-        resp = self.api.get_connection(object_id, 'feed', args)
-        return resp['data']), resp['paging']['next']
+        resp = self.api.get_connection(object_id, 'feed', **args)
+        if 'next' in resp['paging']:
+            return resp['data'], resp['paging']['next']
+        else:
+            return resp['data'], None
+
+    def get_object_comments(self, object_id, **args):
+        resp = self.api.get_connection(object_id, 'comments', **args)
+        if 'next' in resp['paging']:
+            return resp['data'], resp['paging']['next']
+        else:
+            return resp['data'], None
+
+    # Generic version of the above 2 functions
+    # edge='edge_name'
+    def get_edge(self, object_id, **kwargs):
+        if 'edge' in kwargs:
+            endpoint = kwargs.pop('edge')
+            resp = self.api.get_connection(object_id, endpoint, **kwargs)
+            if 'next' in resp['paging']:
+                return resp['data'], resp['paging']['next']
+            else:
+                return resp['data'], None
 
     def _is_current_empty(self,wall):
         if not wall: #empty list
@@ -92,6 +138,7 @@ class FacebookParser(Object):
         qs = parse_qs(parse.query)
         return qs
 
+    # This is completely non-generic and ONLY works for groups and posts
     def _get_next_object_wall(self,object_id, page):
         next_page = page
         while True:
@@ -109,6 +156,22 @@ class FacebookParser(Object):
                 raise StopIteration
             yield wall
 
+    def _get_next_comments(self, object_id, page):
+        next_page = page
+        while True:
+            if not next_page:
+                raise StopIteration
+            qs = self._get_query_from_url(next_page)
+            args = {
+                'limit': qs['limit'][0],
+                'after': qs['after'][0]
+            }
+            comments, page = self.get_object_comments(object_id, **args)
+            next_page = page
+            if not comments:
+                raise StopIteration
+            yield comments
+
     def _get_next_post_from(self,wall):
         # Wall is an array of data
         for post in wall:
@@ -122,6 +185,15 @@ class FacebookParser(Object):
             for wall in self._get_next_object_wall(object_id, page):
                 for post in self._get_next_post_from(wall):
                     yield post
+
+    def get_comments_paginated(self,object_id):
+        comments, page = get_object_comments(object_id)
+        for comment in comments:
+            yield comment
+        if page:
+            for comments in self._get_next_comments(object_id, page):
+                for comment in comments:
+                    yield comment
 
     def get_posts(self,object_id):
         wall, _ = get_object_wall(object_id)
@@ -140,12 +212,41 @@ class FacebookParser(Object):
         # Clearly also includes the source_id as well
         return post['to']['data']
 
+    # def get_comments_from_post(self,post):
+    #     # Return [comment1, comment2, comment2, ...]
+    #     return post['comments']['data']
+
+    def get_comments_from(self,post):
+        # Return the [comments] , {'before': ... , 'after':...} paging token
+        if 'comments' in post:
+            if 'next' in post['comments']['paging']:
+                return post['comments']['data'] , \
+                    post['comments']['paging']['next']
+            else:
+                return post['comments']['data'], None
+        else:
+            return None, None
+
+    def get_likes_from(self,post):
+        if 'likes' in post['data']:
+            if 'next' in post['paging']:
+                return post['likes']['data'] , post['likes']['paging']['next']
+            else:
+                return post['likes']['data'] , None
+        else:
+            return None, None
+
     def get_user_from_comment(self, comment):
         return comment['from']
 
-    def get_comments_from_post(self,post):
-        # Return [comment1, comment2, comment2, ...]
-        return post['comments']['data']
+    # Generator object
+    def get_all_comments_from_post(self,post):
+        comments, next_page = self.get_comments_from(post)
+        for comment in comments:
+            yield comment
+        if next_page:
+            pass
+
 
     def get_user_object_creator(self, obj):
         # Great for adding the group/page/event creator to list of users
@@ -169,11 +270,17 @@ class FacebookUser(IdentityProviderAccount):
     app_id = Column(String(512))
 
     def is_token_expired(self):
-        pass
+        now = datetime.datetime.utcnow()
+        return now > self.oauth_expiry
 
-    def upgrade_to_longlived(self, api):
-        if not self.oauth_token_longlived:
-            return api.get_long_lived() # TODO: Not Implemented yet
+    def convert_to_longlived_token(self):
+        if not self.is_token_expired():
+            token, expires = FacebookAPI(API_VERSION_USED,
+                                         self.oauth_token).extend_token()
+            self.oauth_token = token
+            self.oauth_token_longlived = True
+            self.oauth_expiry = self.oauth_expiry + \
+                                datetime.timedelta(0,expires)
 
 
 class FacebookGenericSource(PostSource):
@@ -195,12 +302,17 @@ class FacebookGenericSource(PostSource):
     }
 
     def make_reader(self):
-        api = FacebookAPI()
+        api = FacebookAPI(API_VERSION_USED)
         return FacebookReader(self.id, api)
 
     @classmethod
-    def create_from(cls, discussion, url, id, description):
-        pass
+    def create_from(cls, discussion, url, fb_id, some_name,
+                    description, **kwargs):
+        created_date = datetime.utcnow()
+        last_import = created_date
+        return cls(name=some_name, creation_date=created_date,
+                   discussion=discussion, fb_source_id= fb_id,
+                   url_path=url, **kwargs)
 
 class FacebookGroupSource(FacebookGenericSource):
     __mapper_args__ = {
@@ -217,8 +329,9 @@ class FacebookGroupSourceFromUser(FacebookGroupSource):
 
     created_by = Column(Integer, ForeignKey('facebook_user.id',
                         onupdate='CASCADE', ondelete='CASCADE'))
-    creator = relationhip('IdentityProviderAccount', backref=backref('sources',
-                          cascade="all, delete-orphan"))
+    creator = relationship('IdentityProviderAccount',
+                           backref=backref('sources',
+                           cascade="all, delete-orphan"))
     __mapper_args__ = {
         'polymorphic_identity': 'facebook_private_group_source'
     }
@@ -246,12 +359,12 @@ class Likes(Base):
 
     id = Column(Integer, primary_key=True)
     type = Column(String(60), nullable=False)
-    source_id = Column(Integer, ForeignKey('post.id',
+    source_id = Column(Integer, ForeignKey('content.id',
                        onupdate='CASCADE', ondelete = 'CASCADE'))
-    source = relationhip(Post, backref=backref('liked_user'))
+    source = relationship(Content, backref=backref('liked_user'))
     user_id = Column(Integer, ForeignKey('abstract_agent_account.id',
         onupdate='CASCADE', ondelete='CASCADE'))
-    user = relationhip(AbstractAgentAccount, backref=backref('liked_posts'))
+    user = relationship(AbstractAgentAccount, backref=backref('liked_posts'))
 
     __mapper_args__ = {
         'polymorphic_identity': 'facebook_likes',
@@ -279,20 +392,19 @@ class PostTagRelationship(Base):
     id = Column(Integer, ForeignKey(Tags.id,
                 onupdate= 'CASCADE',
                 ondelete='CASCADE'), primary_key=True)
-    tag = relationhip(Tags, backref=backref('post_tag_relationships'))
-    user_id = Column(Integer, ForeignKey(Tags,
+    tag = relationship(Tags, backref=backref('post_tag_relationships'))
+    user_id = Column(Integer, ForeignKey(Tags.id,
                      onupdate='CASCADE', ondelete='CASCADE'))
-    user = relationhip(AbstractAgentAccount, backref=backref('tags'))
-    post_id = Column(Integer, ForeignKey(Content,
+    user = relationship(AbstractAgentAccount, backref=backref('tags'))
+    post_id = Column(Integer, ForeignKey(Content.id,
                      onupdate='CASCADE', ondelete='CASCADE'))
-    post = relationhip(Content, backref=backref('tags'))
+    post = relationship(Content, backref=backref('tags'))
 
 
 class FacebookReader(PullSourceReader):
     def __init__(self, source_id, api):
         super(FacebookReader, self).__init__(source_id)
-        self.api = api
-        self.parser = FacebookParser(self.api)
+        self.parser = FacebookParser(FacebookAPI(API_VERSION_USED))
         self._pending_users = {}
         self._cache_users = None
         self.db = get_session_maker(zope_tr=False)
@@ -317,8 +429,9 @@ class FacebookReader(PullSourceReader):
         return self.source
 
     def get_facebook_users_db(self):
-        query = self.db.query(IdentityProviderAccount).\
-            filter_by(provider_id=self.provider.id).all()
+        app_id_domain = self.parser.get_app_id()
+        query = self.db.query(FacebookUser).\
+            filter_by(app_id=app_id_domain).all()
         return {x.userid: x for x in query}
 
     def _check_user_exists(self, user_from_post):
@@ -338,7 +451,7 @@ class FacebookReader(PullSourceReader):
             self.db.add(fb_user)
         self.db.commit()
 
-    def _create_fb_users(self, user_from_post):
+    def _create_fb_user(self, user_from_post):
         # Format {id, name}
         # AbstractAgentAccount
         #     - profile / profile_id
@@ -356,9 +469,11 @@ class FacebookReader(PullSourceReader):
         #     - profile_i (AgentProfile)
         #         - name
         #         - description
-
-        # Why the heck are there two agent_profile's for an
-        # IdentityProviderAccount
+        # FacebookUser:
+        #     - oauth_token
+        #     - oauth_token_longlived
+        #     - oauth_expiry
+        #     - app_id
         exists = self._check_user_exists(user_from_post)
         if not exists:
             userid = user_from_post['id']
@@ -367,12 +482,12 @@ class FacebookReader(PullSourceReader):
                 description = 'An imported facebook user')
 
             fb_user = FacebookUser(
-                provider = self.provider
-                domain = self.domain
-                userid = userid
-                full_name = full_name
-                profile_i = agent_profile
-                profile = agent_profile)
+                provider = self.provider,
+                domain = self.domain,
+                userid = userid,
+                full_name = full_name,
+                profile = agent_profile,
+                app_id = self.api.app_id)
 
             self._cache_users[userid] = fb_user
 
@@ -424,14 +539,25 @@ class FacebookReader(PullSourceReader):
         attachment = self._check_and_get_link(wall_post)
         link_name = self._check_and_get_caption(wall_post)
 
-        return
-            FacebookPost(attachment=attachment,
-                         link_name=link_name,
-                         import_date=import_date,
-                         source_post_id=source_post_id,
-                         source= source, body_mime_type=body_mime_type,
-                         creation_date=creation_date, discussion=discussion,
-                         body=body, creator=creator_agent)
+        return FacebookPost(
+            attachment=attachment,
+            link_name=link_name,
+            import_date=import_date,
+            source_post_id=source_post_id,
+            source= source, body_mime_type=body_mime_type,
+            creation_date=creation_date, discussion=discussion,
+            body=body, creator=creator_agent)
 
     def convert_feed(self):
-        pass
+        #first, get group/page/info from source
+        obj_id = self.source.fb_id
+        object_info = self.parser.get_object_info(obj_id)
+        self._create_fb_users(
+            self.parser.get_user_object_creator(object_info))
+
+        for post in self.parser.get_posts_paginated(obj_id):
+            pass
+
+    def do_read(self):
+        self.convert_feed()
+
