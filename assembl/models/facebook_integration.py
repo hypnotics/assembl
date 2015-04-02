@@ -218,7 +218,7 @@ class FacebookParser(object):
     def get_users_post_to_sans_self(self, post, self_id):
         # self_id is the group/page id that user has posted to
         users = self.get_users_post_to(post)
-        return [x for x in users if x.id != self_id]
+        return [x for x in users if x['id'] != self_id]
 
     # def get_comments_from_post(self,post):
     #     # Return [comment1, comment2, comment2, ...]
@@ -256,10 +256,12 @@ class FacebookParser(object):
             # ordinal keys (dict of dict)
             # Check if no ordinality exists:
             if 'id' in comment['message_tags'][0]:
-                return [x for x in comment['message_tags'] if x['type']='user']
+                return [x for x in comment['message_tags']
+                    if x['type']=='user']
             else:
                 ordinal_dict = comment['message_tags']
-                return [y for x:y in ordinal_dict if y['type']='user']
+                return [y for y in ordinal_dict.itervalues()
+                    if y['type']=='user']
 
         else:
             return []
@@ -321,13 +323,12 @@ class FacebookGenericSource(PostSource):
         return FacebookReader(self.id, api)
 
     @classmethod
-    def create_from(cls, discussion, url, fb_id, some_name,
-                    description, **kwargs):
+    def create_from(cls, discussion, url, fb_id, some_name):
         created_date = datetime.utcnow()
         last_import = created_date
         return cls(name=some_name, creation_date=created_date,
                    discussion=discussion, fb_source_id= fb_id,
-                   url_path=url, **kwargs)
+                   url_path=url)
 
 class FacebookGroupSource(FacebookGenericSource):
     __mapper_args__ = {
@@ -344,7 +345,7 @@ class FacebookGroupSourceFromUser(FacebookGroupSource):
 
     created_by = Column(Integer, ForeignKey('facebook_user.id',
                         onupdate='CASCADE', ondelete='CASCADE'))
-    creator = relationship('IdentityProviderAccount',
+    creator = relationship(FacebookUser,
                            backref=backref('sources',
                            cascade="all, delete-orphan"))
     __mapper_args__ = {
@@ -369,51 +370,51 @@ class FacebookPost(ImportedPost):
         'polymorphic_identity': 'facebook_post'
     }
 
-class Likes(Base):
-    __tablename__ = 'generic_post_likes'
+# class Likes(Base):
+#     __tablename__ = 'generic_post_likes'
 
-    id = Column(Integer, primary_key=True)
-    type = Column(String(60), nullable=False)
-    source_id = Column(Integer, ForeignKey('content.id',
-                       onupdate='CASCADE', ondelete = 'CASCADE'))
-    source = relationship(Content, backref=backref('liked_user'))
-    user_id = Column(Integer, ForeignKey('abstract_agent_account.id',
-        onupdate='CASCADE', ondelete='CASCADE'))
-    user = relationship(AbstractAgentAccount, backref=backref('liked_posts'))
+#     id = Column(Integer, primary_key=True)
+#     type = Column(String(60), nullable=False)
+#     source_id = Column(Integer, ForeignKey('content.id',
+#                        onupdate='CASCADE', ondelete = 'CASCADE'))
+#     source = relationship(Content, backref=backref('liked_user'))
+#     user_id = Column(Integer, ForeignKey('abstract_agent_account.id',
+#         onupdate='CASCADE', ondelete='CASCADE'))
+#     user = relationship(AbstractAgentAccount, backref=backref('liked_posts'))
 
-    __mapper_args__ = {
-        'polymorphic_identity': 'facebook_likes',
-        'with_polymorphic': '*',
-        'polymorphic_on': type
-    }
-
-
-class FacebookLikes(Likes):
-    __mapper_args__ = {
-        'polymorphic_identity': 'facebook_likes '
-    }
-
-class Tags(Base):
-    __tablename__ = 'hashtag'
-
-    id = Column(Integer, primary_key=True)
-    # The hashtage, without the #
-    tag = Column(CoerceUnicode(256), nullable = False, unique=True)
-    created_date = Column(DateTime)
+#     __mapper_args__ = {
+#         'polymorphic_identity': 'facebook_likes',
+#         'with_polymorphic': '*',
+#         'polymorphic_on': type
+#     }
 
 
-class PostTagRelationship(Base):
-    __tablename__ = 'post_tag_relationship'
-    id = Column(Integer, ForeignKey(Tags.id,
-                onupdate= 'CASCADE',
-                ondelete='CASCADE'), primary_key=True)
-    tag = relationship(Tags, backref=backref('post_tag_relationships'))
-    user_id = Column(Integer, ForeignKey(Tags.id,
-                     onupdate='CASCADE', ondelete='CASCADE'))
-    user = relationship(AbstractAgentAccount, backref=backref('tags'))
-    post_id = Column(Integer, ForeignKey(Content.id,
-                     onupdate='CASCADE', ondelete='CASCADE'))
-    post = relationship(Content, backref=backref('tags'))
+# class FacebookLikes(Likes):
+#     __mapper_args__ = {
+#         'polymorphic_identity': 'facebook_likes '
+#     }
+
+# class Tags(Base):
+#     __tablename__ = 'hashtag'
+
+#     id = Column(Integer, primary_key=True)
+#     # The hashtage, without the #
+#     tag = Column(CoerceUnicode(256), nullable = False, unique=True)
+#     created_date = Column(DateTime)
+
+
+# class PostTagRelationship(Base):
+#     __tablename__ = 'post_tag_relationship'
+#     id = Column(Integer, ForeignKey(Tags.id,
+#                 onupdate= 'CASCADE',
+#                 ondelete='CASCADE'), primary_key=True)
+#     tag = relationship(Tags, backref=backref('post_tag_relationships'))
+#     user_id = Column(Integer, ForeignKey(Tags.id,
+#                      onupdate='CASCADE', ondelete='CASCADE'))
+#     user = relationship(AbstractAgentAccount, backref=backref('tags'))
+#     post_id = Column(Integer, ForeignKey(Content.id,
+#                      onupdate='CASCADE', ondelete='CASCADE'))
+#     post = relationship(Content, backref=backref('tags'))
 
 
 class FacebookReader(PullSourceReader):
@@ -421,12 +422,18 @@ class FacebookReader(PullSourceReader):
         super(FacebookReader, self).__init__(source_id)
         self.api = api
         self.parser = FacebookParser(api)
-        self._cache_users = None
-        self.db = self.source.db # Could be another way to get db access
+        self._cache_users = {}
+        self.db = get_session_maker(zope_tr=False)
+        self.source = None
         self.domain = 'facebook.com'
         self.provider = None
         self._get_facebook_provider()
-        self._get_post_source()
+        self._get_facebook_source(source_id)
+
+    def _get_facebook_source(self, source_id):
+        if not self.source:
+            self.source = self.db.query(FacebookGroupSource).\
+                filter_by(id=source_id).first()
 
     def _get_facebook_provider(self):
         if not self.provider:
@@ -457,45 +464,62 @@ class FacebookReader(PullSourceReader):
             self.db.add(fb_user)
         self.db.commit()
 
-    def create_fb_user(self, user_from_post):
-        # Format {id, name}
-        # AbstractAgentAccount
-        #     - profile / profile_id
-        #     - preferred
-        #     - verified
-        #     - email
-        #     - full_name
-        # IdentityProviderAccount:
-        #     - provider
-        #     - username
-        #     - domain
-        #     - userid
-        #     - profile_info
-        #     - picture_url
-        #     - profile_i (AgentProfile)
-        #         - name
-        #         - description
-        # FacebookUser:
-        #     - oauth_token
-        #     - oauth_token_longlived
-        #     - oauth_expiry
-        #     - app_id
-        exists = self._check_user_exists(user_from_post)
-        if not exists:
-            userid = user_from_post['id']
-            full_name = user_from_post ['name']
-            agent_profile = AgentProfile(name=full_name,
-                description = 'An imported facebook user')
+    # def create_fb_user(self, user_from_post):
+    #     # Format {id, name}
+    #     # AbstractAgentAccount
+    #     #     - profile / profile_id
+    #     #     - preferred
+    #     #     - verified
+    #     #     - email
+    #     #     - full_name
+    #     # IdentityProviderAccount:
+    #     #     - provider
+    #     #     - username
+    #     #     - domain
+    #     #     - userid
+    #     #     - profile_info
+    #     #     - picture_url
+    #     #     - profile_i (AgentProfile)
+    #     #         - name
+    #     #         - description
+    #     # FacebookUser:
+    #     #     - oauth_token
+    #     #     - oauth_token_longlived
+    #     #     - oauth_expiry
+    #     #     - app_id
+    #     exists = self._check_user_exists(user_from_post)
+    #     if not exists:
+    #         userid = user_from_post['id']
+    #         full_name = user_from_post ['name']
+    #         agent_profile = AgentProfile(name=full_name)
 
-            fb_user = FacebookUser(
-                provider = self.provider,
-                domain = self.domain,
-                userid = userid,
-                full_name = full_name,
-                profile = agent_profile,
-                app_id = self.api.app_id)
+    #         fb_user = FacebookUser(
+    #             provider = self.provider,
+    #             domain = self.domain,
+    #             userid = userid,
+    #             full_name = full_name,
+    #             profile = agent_profile,
+    #             app_id = self.api.app_id)
 
-            self._cache_users[userid] = fb_user
+    #         self._cache_users[userid] = fb_user
+
+    def create_fb_user(self,user_from_post):
+        userid = user_from_post['id']
+        full_name = user_from_post ['name']
+
+        # Check the db for user existence
+        # exists = self.db.query(FacebookUser)
+
+
+        agent_profile = AgentProfile(name=full_name)
+
+        fb_user = FacebookUser(
+            provider = self.provider,
+            domain = self.domain,
+            userid = userid,
+            full_name = full_name,
+            profile = agent_profile,
+            app_id = self.api.app_id)
 
     def _convert_to_datetime(self, strtime):
         # Eg input:"2015-03-21T00:14:55+0000"
@@ -556,7 +580,12 @@ class FacebookReader(PullSourceReader):
 
     def _get_user_profile_agent(self,user_fb_id):
         if user_fb_id in self._cache_users:
-            return self._cache_users[user_fb_id].creator
+            if self._cache_users[user_fb_id].profile:
+                return self._cache_users[user_fb_id].profile
+            elif self._cache_users[user_fb_id].profile_i:
+                return self._cache_users[user_fb_id].profile_i
+            else:
+                return None
         else:
             user = self.db.query(FacebookUser).\
                 filter_by(userid=user_fb_id).first()
@@ -569,7 +598,7 @@ class FacebookReader(PullSourceReader):
 
     def convert_feed(self):
         #first, get group/page/info from source
-        obj_id = self.source.fb_id
+        obj_id = self.source.fb_source_id
         object_info = self.parser.get_object_info(obj_id)
         self.create_fb_user(
             self.parser.get_user_object_creator(object_info))
@@ -597,8 +626,9 @@ class FacebookReader(PullSourceReader):
                 # There has GOT TO BE A BETTER WAY THAN THIS!
                 commment_post.set_parent(assembl_post)
                 self.db.add(comment_post)
+                self.db.flush()
 
-        db.flush()
+        db.commit()
 
     def do_read(self):
         self.convert_feed()
