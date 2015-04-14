@@ -85,11 +85,12 @@ class FacebookParser(object):
 
     def __init__(self, api):
         print "I just created an API Endpoint"
+        self.fb_api = api
         self.api = api.api_caller()
         self.user_flush_state = None
 
     def get_app_id(self):
-        return self.api.app_id
+        return self.fb_api.app_id
 
     def get_object_info(self,object_id):
         return self.api.get_object(object_id)
@@ -466,21 +467,14 @@ class FacebookPost(ImportedPost):
 #     post = relationship(Content, backref=backref('tags'))
 
 
-class FacebookReader(PullSourceReader):
-    def __init__(self, source_id, api):
-        super(FacebookReader, self).__init__(source_id)
-        self.api = api
-        self.parser = FacebookParser(api)
-        self.db = get_session_maker(zope_tr=False)
-        self.source = None # This is for debugging, should be removed
+class FacebookManager(object):
+    def __init__(self, source):
+        self.source = source
+        self.api = FacebookAPI()
+        self.parser = FacebookParser(self.api)
+        self.db = source.db
         self.provider = None
         self._get_facebook_provider()
-        self._get_facebook_source(source_id)
-
-    def _get_facebook_source(self, source_id):
-        if not self.source:
-            self.source = self.db.query(FacebookGroupSource).\
-                filter_by(id=source_id).first()
 
     def _get_facebook_provider(self):
         if not self.provider:
@@ -500,13 +494,13 @@ class FacebookReader(PullSourceReader):
         return {x.source_post_id: x for x in results}
 
     def create_fb_user(self,user, db):
-        if user_from_post['id'] not in db:
+        if user['id'] not in db:
             new_user = FacebookUser.create(
                 user,
                 self.provider,
-                self.api.get_app_id()
+                self.parser.get_app_id()
             )
-            self.db.add(user)
+            self.db.add(new_user)
             self.db.flush()
             db[user['id']] = new_user
 
@@ -518,6 +512,7 @@ class FacebookReader(PullSourceReader):
             db[post['id']] = new_post
 
     def convert_feed(self):
+        print "Creating users and posts caches"
         users_db = self._get_current_users()
         posts_db = self._get_current_posts()
 
@@ -525,6 +520,7 @@ class FacebookReader(PullSourceReader):
         obj_id = self.source.fb_source_id
         object_info = self.parser.get_object_info(obj_id)
 
+        print "Creating user who created the group"
         self.create_fb_user(
             self.parser.get_user_object_creator(object_info),
             users_db
@@ -559,7 +555,13 @@ class FacebookReader(PullSourceReader):
 
                 self.db.commit()
 
+
+class FacebookReader(PullSourceReader):
+    def __init__(self, source):
+        super(FacebookReader, self).__init__(source.id)
+        api = FacebookAPI()
+        self.manager = FacebookManager(source, api)
+
     def do_read(self):
-        self.convert_feed()
-        self.flush_local()
+        self.manager.convert_feed()
 
