@@ -37,8 +37,10 @@ from urlparse import urlparse, parse_qs
 
 API_VERSION_USED = 2.2
 DEFAULT_TIMEOUT = 30 #seconds
+DOMAIN = 'facebook.com'
 
 class FacebookAPI(object):
+    # Proxy object to the unofficial facebook sdk
     def __init__(self, user_token=None):
         config = get_config()
         self._app_id = config['facebook.consumer_key']
@@ -77,6 +79,10 @@ class FacebookAPI(object):
 
 
 class FacebookParser(object):
+    # The main object to interact with to get source endpoints
+    # The API proxy is injected no construction to have flexibility as
+    # to which API sdk to use
+
     def __init__(self, api):
         print "I just created an API Endpoint"
         self.api = api.api_caller()
@@ -115,9 +121,9 @@ class FacebookParser(object):
         else:
             return resp['data'], None
 
-    # Generic version of the above 2 functions
-    # edge='edge_name'
     def get_edge(self, object_id, **kwargs):
+        # Generic version of the above 2 functions
+        # edge='edge_name'
         if 'edge' in kwargs:
             endpoint = kwargs.pop('edge')
             resp = self.api.get_connection(object_id, endpoint, **kwargs)
@@ -141,8 +147,8 @@ class FacebookParser(object):
         qs = parse_qs(parse.query)
         return qs
 
-    # This is completely non-generic and ONLY works for groups and posts
     def _get_next_object_wall(self,object_id, page):
+        # This is completely non-generic and ONLY works for groups and posts
         next_page = page
         while True:
             if not next_page:
@@ -283,7 +289,7 @@ class FacebookUser(IdentityProviderAccount):
         onupdate='CASCASE'), primary_key=True)
     oauth_token  = Column(String(1024))
     oauth_token_longlived = Column(Boolean(),
-                                   default = False, server_default='0')
+        default = False, server_default='0')
     oauth_expiry = Column(DateTime)
     app_id = Column(String(512))
 
@@ -292,12 +298,28 @@ class FacebookUser(IdentityProviderAccount):
         return now > self.oauth_expiry
 
     def convert_to_longlived_token(self):
+        # Will only work on the revised version of the API
         if not self.is_token_expired():
             token, expires = FacebookAPI(self.oauth_token).extend_token()
             self.oauth_token = token
             self.oauth_token_longlived = True
             self.oauth_expiry = self.oauth_expiry + \
                                 datetime.timedelta(0,expires)
+
+    @classmethod
+    def create(cls, user, provider, app_id):
+        userid = user['id']
+        full_name = user['name']
+        agent_profile = AgentProfile(name=full_name)
+
+        return cls(
+            provider = provider,
+            domain = DOMAIN,
+            userid = userid,
+            full_name = full_name,
+            profile = agent_profile,
+            app_id = app_id
+        )
 
 
 class FacebookGenericSource(PostSource):
@@ -370,6 +392,33 @@ class FacebookPost(ImportedPost):
         'polymorphic_identity': 'facebook_post'
     }
 
+    @classmethod
+    def create(cls, source, post, user):
+        #
+        import_date = datetime.utcnow()
+        source_post_id = post['id']
+        source = source
+        creation_date = dateutil.parser.parse(post['created_time'])
+        # subject = 'Discussion on Facebook'
+        discussion = source.discussion
+        body = post['message']
+        attachment = post['link'] if 'link' in post else None
+        link_name = post['caption'] if 'caption' in post else None
+        creator_agent = user.profile
+
+        return cls(
+            attachment=attachment,
+            link_name=link_name,
+            import_date=import_date,
+            source_post_id=source_post_id,
+            message_id = source_post_id,
+            source= source,
+            creation_date=creation_date,
+            discussion=discussion,
+            body=body,
+            creator=creator_agent)
+
+
 # class Likes(Base):
 #     __tablename__ = 'generic_post_likes'
 
@@ -422,10 +471,8 @@ class FacebookReader(PullSourceReader):
         super(FacebookReader, self).__init__(source_id)
         self.api = api
         self.parser = FacebookParser(api)
-        self._cache_users = {}
         self.db = get_session_maker(zope_tr=False)
-        self.source = None
-        self.domain = 'facebook.com'
+        self.source = None # This is for debugging, should be removed
         self.provider = None
         self._get_facebook_provider()
         self._get_facebook_source(source_id)
@@ -441,177 +488,58 @@ class FacebookReader(PullSourceReader):
                 filter_by(name='facebook').first()
             self.provider = fb
 
-    def get_facebook_users_db(self):
+    def _get_current_users(self):
         app_id_domain = self.parser.get_app_id()
-        query = self.db.query(FacebookUser).\
+        result = self.db.query(FacebookUser).\
             filter_by(app_id=app_id_domain).all()
-        return {x.userid: x for x in query}
+        return {x.userid: x for x in result}
 
-    def _check_user_exists(self, user_from_post):
-        return user_from_post['id'] in self._cache_users
+    def _get_current_posts(self):
+        results = self.db.query(FacebookPost).filter_by(
+            source=self.source).all()
+        return {x.source_post_id: x for x in results}
 
-    def unique_users_only(self, database_users):
-        local = self._cache_users
-        local_set = set(local.keys())
-        db_set = set(database_users.keys())
-        unique_users = local_set - db_set
-        return {x: local[x] for x in unique_users}
+    def create_fb_user(self,user, db):
+        if user_from_post['id'] not in db:
+            new_user = FacebookUser.create(
+                user,
+                self.provider,
+                self.api.get_app_id()
+            )
+            self.db.add(user)
+            self.db.flush()
+            db[user['id']] = new_user
 
-    def flush_local(self):
-        db_users = self.get_facebook_users_db()
-        unique = self.unique_users_only(db_users)
-        for userid, fb_user in unique:
-            self.db.add(fb_user)
-        self.db.commit()
-
-    # def create_fb_user(self, user_from_post):
-    #     # Format {id, name}
-    #     # AbstractAgentAccount
-    #     #     - profile / profile_id
-    #     #     - preferred
-    #     #     - verified
-    #     #     - email
-    #     #     - full_name
-    #     # IdentityProviderAccount:
-    #     #     - provider
-    #     #     - username
-    #     #     - domain
-    #     #     - userid
-    #     #     - profile_info
-    #     #     - picture_url
-    #     #     - profile_i (AgentProfile)
-    #     #         - name
-    #     #         - description
-    #     # FacebookUser:
-    #     #     - oauth_token
-    #     #     - oauth_token_longlived
-    #     #     - oauth_expiry
-    #     #     - app_id
-    #     exists = self._check_user_exists(user_from_post)
-    #     if not exists:
-    #         userid = user_from_post['id']
-    #         full_name = user_from_post ['name']
-    #         agent_profile = AgentProfile(name=full_name)
-
-    #         fb_user = FacebookUser(
-    #             provider = self.provider,
-    #             domain = self.domain,
-    #             userid = userid,
-    #             full_name = full_name,
-    #             profile = agent_profile,
-    #             app_id = self.api.app_id)
-
-    #         self._cache_users[userid] = fb_user
-
-    def create_fb_user(self,user_from_post):
-        userid = user_from_post['id']
-        full_name = user_from_post ['name']
-
-        # Check the db for user existence
-        # exists = self.db.query(FacebookUser)
-
-
-        agent_profile = AgentProfile(name=full_name)
-
-        fb_user = FacebookUser(
-            provider = self.provider,
-            domain = self.domain,
-            userid = userid,
-            full_name = full_name,
-            profile = agent_profile,
-            app_id = self.api.app_id)
-
-    def _convert_to_datetime(self, strtime):
-        # Eg input:"2015-03-21T00:14:55+0000"
-        return dateutil.parser.parse(strtime)
-
-    def _check_and_get_link(self,wall_post):
-        if 'link' in wall_post:
-            return wall_post['link']
-        return None
-
-    def _check_and_get_caption(self,wall_post):
-        if 'caption' in wall_post:
-            return wall_post['caption']
-        return None
-
-    def create_post(self, wall_post, creator_agent):
-        # Facebook_post:
-        #     - attachment
-        #     - link_name
-        # ImportedPost:
-        #     - import_date
-        #     - source_post_id (unique to post source)
-        #     - source_id / source
-        #     - body_mime_type
-        # Post:
-        #     - message_id (same as source_post_id)
-        #     - ancestry
-        #     - parent_id
-        #     - children
-        #     - creator_id / creator
-        #     - subject
-        #     - body
-        # Content:
-        #     - creation_date
-        #     - discussion_id / discussion
-        #     - hidden
-        #     - widget_idea_links
-        import_date = datetime.utcnow()
-        source_post_id = wall_post['id']
-        source = self.source
-        body_mime_type = 'text/plain' # Does not come from Facebook!
-        # Current models ignores the last updated time of a post
-        creation_date = self._convert_to_datetime(wall_post['created_time'])
-        # subject = 'Discussion on Facebook'
-        discussion = source.discussion
-        body = wall_post['message']
-        attachment = self._check_and_get_link(wall_post)
-        link_name = self._check_and_get_caption(wall_post)
-
-        return FacebookPost(
-            attachment=attachment,
-            link_name=link_name,
-            import_date=import_date,
-            source_post_id=source_post_id,
-            source= source, body_mime_type=body_mime_type,
-            creation_date=creation_date, discussion=discussion,
-            body=body, creator=creator_agent)
-
-    def _get_user_profile_agent(self,user_fb_id):
-        if user_fb_id in self._cache_users:
-            if self._cache_users[user_fb_id].profile:
-                return self._cache_users[user_fb_id].profile
-            elif self._cache_users[user_fb_id].profile_i:
-                return self._cache_users[user_fb_id].profile_i
-            else:
-                return None
-        else:
-            user = self.db.query(FacebookUser).\
-                filter_by(userid=user_fb_id).first()
-            if user.profile:
-                return user.profile
-            elif user.profile_i:
-                return user.profile_i
-            else:
-                return None
+    def create_post(self, post, user, db):
+        if post['id'] not in db:
+            new_post = FacebookPost.create(self.source, post, user)
+            self.db.add(new_post)
+            self.db.flush()
+            db[post['id']] = new_post
 
     def convert_feed(self):
+        users_db = self._get_current_users()
+        posts_db = self._get_current_posts()
+
         #first, get group/page/info from source
         obj_id = self.source.fb_source_id
         object_info = self.parser.get_object_info(obj_id)
+
         self.create_fb_user(
-            self.parser.get_user_object_creator(object_info))
+            self.parser.get_user_object_creator(object_info),
+            users_db
+        )
 
         for post in self.parser.get_posts_paginated(obj_id):
             creator = self.parser.get_user_post_creator(post)
             self.create_fb_user(creator)
+
             for user in self.parser.get_users_post_to_sans_self(post, obj_id):
                 self.create_fb_user(user)
-            creator_agent = self._get_user_profile_agent(creator['id'])
-            assembl_post = self.create_post(post, creator_agent)
-            self.db.add(assembl_post)
-            self.db.flush() # Can this be avoided!?
+
+            creator_agent = users_db.get(creator['id'])
+            assembl_post = self.create_post(post, creator_agent, posts_db)
+            self.db.commit()
 
             for comment in self.parser.get_comments_paginated(post['id']):
                 user = self.parser.get_user_from_comment(comment)
@@ -621,14 +549,15 @@ class FacebookReader(PullSourceReader):
                 for usr in targeted_users:
                     self.create_fb_user(usr)
 
-                cmt_creator_agent = self._get_user_profile_agent(user['id'])
+                self.db.commit()
+
+                cmt_creator_agent = users_db.get(user['id'])
                 comment_post = self.create_post(comment, cmt_creator_agent)
-                # There has GOT TO BE A BETTER WAY THAN THIS!
-                commment_post.set_parent(assembl_post)
                 self.db.add(comment_post)
                 self.db.flush()
+                commment_post.set_parent(assembl_post)
 
-        db.commit()
+                self.db.commit()
 
     def do_read(self):
         self.convert_feed()
