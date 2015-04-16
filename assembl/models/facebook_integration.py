@@ -130,16 +130,6 @@ class FacebookParser(object):
             else:
                 return resp['data'], None
 
-    def _is_current_empty(self, wall):
-        if not wall:  # empty list
-            return True
-        return False
-
-    def _is_next_empty(self, paging):
-        if not paging['next']:
-            return True
-        return False
-
     def _get_query_from_url(self, page):
         parse = urlparse(page)
         qs = parse_qs(parse.query)
@@ -201,6 +191,19 @@ class FacebookParser(object):
             for comments in self._get_next_comments(post_id, page):
                 for comment in comments:
                     yield comment
+
+    def get_single_post(self, post_id):
+        pass
+
+    def get_comments_paginated2(self, post):
+        # A generator object
+        if 'comments' not in post:
+            raise StopIteration
+        comments = post['comments']['data']
+        next_page = post.get('paging', {}).get('next', None)
+        for comment in comments:
+            yield comment
+        self._get_next_comments(post['id'], next_page)
 
     def get_posts(self, object_id):
         wall, _ = self.get_object_wall(object_id)
@@ -282,9 +285,9 @@ class FacebookUser(IdentityProviderAccount):
     }
 
     id = Column(Integer, ForeignKey(
-        'idprovider_agent_account',
-        ondelete='CASCASE',
-        onupdate='CASCASE'), primary_key=True)
+        'idprovider_agent_account.id',
+        ondelete='CASCADE',
+        onupdate='CASCADE'), primary_key=True)
     oauth_token = Column(String(1024))
     oauth_token_longlived = Column(Boolean(),
                                    default=False, server_default='0')
@@ -505,7 +508,7 @@ class FacebookManager(object):
             db[user['id']] = new_user
 
     def create_post(self, post, user, db):
-        if post['id'] not in db:
+        if post['id'] not in db and 'message' in post:
             new_post = FacebookPost.create(self.source, post, user)
             self.db.add(new_post)
             self.db.flush()
@@ -516,6 +519,7 @@ class FacebookManager(object):
         users_db = self._get_current_users()
         posts_db = self._get_current_posts()
 
+        print "Created db of users"
         # first, get group/page/info from source
         obj_id = self.source.fb_source_id
         object_info = self.parser.get_object_info(obj_id)
@@ -526,31 +530,40 @@ class FacebookManager(object):
             users_db
         )
 
+        print "Begin fetching all posts"
+
         for post in self.parser.get_posts_paginated(obj_id):
+            post_id = post.get('id')
             creator = self.parser.get_user_post_creator(post)
-            self.create_fb_user(creator)
+            self.create_fb_user(creator, users_db)
 
+            print "Created the user of the poser"
             for user in self.parser.get_users_post_to_sans_self(post, obj_id):
-                self.create_fb_user(user)
+                self.create_fb_user(user, users_db)
 
-            creator_agent = users_db.get(creator['id'])
-            assembl_post = self.create_post(post, creator_agent, posts_db)
+            creator_id = creator.get('id', None)
+            creator_agent = users_db.get(creator_id)
+            self.create_post(post, creator_agent, posts_db)
+            assembl_post = posts_db.get(post_id)
+            print "Created the post object"
             self.db.commit()
 
-            for comment in self.parser.get_comments_paginated(post['id']):
+            for comment in self.parser.get_comments_paginated2(post):
                 user = self.parser.get_user_from_comment(comment)
-                self.create_fb_user(user)
+                user_id = user.get('id')
+                comment_id = comment.get('id')
+                self.create_fb_user(user, users_db)
                 targeted_users = self.parser.get_users_from_comment_mention(
                     comment)
                 for usr in targeted_users:
-                    self.create_fb_user(usr)
-
+                    self.create_fb_user(usr, users_db)
+                print "Creating users of the comment"
                 self.db.commit()
 
-                cmt_creator_agent = users_db.get(user['id'])
-                comment_post = self.create_post(comment, cmt_creator_agent)
-                self.db.add(comment_post)
+                cmt_creator_agent = users_db.get(user_id)
+                self.create_post(comment, cmt_creator_agent, posts_db)
                 self.db.flush()
+                comment_post = posts_db.get(comment_id)
                 comment_post.set_parent(assembl_post)
 
                 self.db.commit()
