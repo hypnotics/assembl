@@ -358,10 +358,6 @@ class FacebookGroupSource(FacebookGenericSource):
     __mapper_args__ = {
         'polymorphic_identity': 'facebook_open_group_source'
     }
-    def __init__(self, *args, **kwargs):
-        import traceback
-        traceback.print_stack()
-        super(FacebookGroupSource, self).__init__(*args,**kwargs)
 
 class FacebookGroupSourceFromUser(FacebookGroupSource):
     __tablename__ = 'facebook_private_group_source'
