@@ -24,6 +24,8 @@ from ..lib.config import get_config
 from datetime import datetime
 import dateutil.parser
 from urlparse import urlparse, parse_qs
+import simplejson as json
+import re
 
 # Follow a similar model to feed_parsing
 
@@ -93,7 +95,7 @@ class FacebookParser(object):
         return self.api.get_object(object_id)
 
     # Define endpoint choice, 'feed', 'posts', etc
-    def get_object_wall_2(self, object_id, **kwargs):
+    def get_object_wall(self, object_id, **kwargs):
         if 'wall' in kwargs:
             endpoint = kwargs.pop('wall')
             resp = self.api.get_connections(object_id, endpoint, **kwargs)
@@ -103,7 +105,7 @@ class FacebookParser(object):
                 return resp['data'], None
 
     # This is completely non-generic and only works for groups
-    def get_object_wall(self, object_id, **args):
+    def get_object_feed(self, object_id, **args):
         resp = self.api.get_connections(object_id, 'feed', **args)
         if 'paging' in resp:
             if 'next' in resp['paging']:
@@ -147,7 +149,7 @@ class FacebookParser(object):
                 'until': qs['until'][0],
                 '__paging_token': qs['__paging_token'][0]
             }
-            wall, page = self.get_object_wall(object_id, **args)
+            wall, page = self.get_object_feed(object_id, **args)
             next_page = page
             if not wall:
                 raise StopIteration
@@ -175,7 +177,7 @@ class FacebookParser(object):
             yield post
 
     def get_posts_paginated(self, object_id):
-        wall, page = self.get_object_wall(object_id)
+        wall, page = self.get_object_feed(object_id)
         for post in wall:
             yield post
         if page:
@@ -192,9 +194,6 @@ class FacebookParser(object):
                 for comment in comments:
                     yield comment
 
-    def get_single_post(self, post_id):
-        pass
-
     def get_comments_paginated2(self, post):
         # A generator object
         if 'comments' not in post:
@@ -206,7 +205,7 @@ class FacebookParser(object):
         self._get_next_comments(post['id'], next_page)
 
     def get_posts(self, object_id):
-        wall, _ = self.get_object_wall(object_id)
+        wall, _ = self.get_object_feed(object_id)
         for post in wall:
             yield post
 
@@ -277,6 +276,18 @@ class FacebookParser(object):
         # Great for adding the group/page/event creator to list of users
         return obj['owner']
 
+    def get_user_profile_photo(self, user):
+        # Will make another API call to fetch the user's public profile
+        # picture, if present. If not, will return nothing.
+        kwargs = {'redirect': 'false'}
+        user_id = user.get('id')
+        result = self.api.get_connections(user_id, 'picture', **kwargs)
+        if not result.get('data', None):
+            return None
+        profile_info = result.get('data')
+        if not profile_info.get('is_silhouette', False):
+            return profile_info.get('url')
+        return None
 
 class FacebookUser(IdentityProviderAccount):
     __tablename__ = 'facebook_user'
@@ -307,10 +318,15 @@ class FacebookUser(IdentityProviderAccount):
             self.oauth_expiry = self.oauth_expiry + \
                 datetime.timedelta(0, expires)
 
+    # @override
+    #def avatar_url(self, size=32):
+        # Override the behavior to return the following:
+        # https://graph.facebook.com/user_id/picture?size=32
+
     @classmethod
-    def create(cls, user, provider, app_id):
-        userid = user['id']
-        full_name = user['name']
+    def create(cls, user, provider, app_id, avatar_url=None):
+        userid = user.get('id')
+        full_name = user.get('name')
         agent_profile = AgentProfile(name=full_name)
 
         return cls(
@@ -319,7 +335,8 @@ class FacebookUser(IdentityProviderAccount):
             userid=userid,
             full_name=full_name,
             profile=agent_profile,
-            app_id=app_id
+            app_id=app_id,
+            picture_url=avatar_url
         )
 
 
@@ -359,6 +376,7 @@ class FacebookGroupSource(FacebookGenericSource):
         'polymorphic_identity': 'facebook_open_group_source'
     }
 
+
 class FacebookGroupSourceFromUser(FacebookGroupSource):
     __tablename__ = 'facebook_private_group_source'
 
@@ -391,6 +409,7 @@ class FacebookPost(ImportedPost):
 
     attachment = Column(String(1024))
     link_name = Column(CoerceUnicode(1024))
+    post_type = Column(String(20))
 
     __mapper_args__ = {
         'polymorphic_identity': 'facebook_post'
@@ -400,15 +419,44 @@ class FacebookPost(ImportedPost):
     def create(cls, source, post, user):
         #
         import_date = datetime.utcnow()
-        source_post_id = post['id']
+        source_post_id = post.get('id')
         source = source
-        creation_date = dateutil.parser.parse(post['created_time'])
-        # subject = 'Discussion on Facebook'
+        creation_date = dateutil.parser.parse(post.get('created_time'))
         discussion = source.discussion
-        body = post['message']
-        attachment = post['link'] if 'link' in post else None
-        link_name = post['caption'] if 'caption' in post else None
         creator_agent = user.profile
+        blob = json.dumps(post)
+
+        post_type = post.get('type', None)
+        subject, body, attachment, link_name = (None, None, None, None)
+        if not post_type:
+            # Typically, a facebook comment
+            # Comments, even with links embedded, do not have an attachment
+            body = post.get('message')
+            post_type = 'comment'
+
+        elif post_type is 'video' or 'photo':
+            subject = post.get('story', None)
+            body = post.get('message', "") + "\n" + post.get('link', "") \
+                if 'message' in post else post.get('link', "")
+            attachment = post.get('link', None)
+            link_name = post.get('caption', None)
+
+        elif post_type is 'link':
+            subject = post.get('story', None)
+            body = post.get('message', "")
+            attachment = post.get('link')
+            link_name = post.get('caption', None)
+            match_str = re.split(r"^\w+://", attachment)[1]
+            if match_str not in body:
+                body += "\n" + attachment
+
+        elif post_type is 'status':
+            if not post.get('message', None):
+                # A type of post that does not have any links nor body content
+                # It is useless, therefore it should never generate a post
+                return None
+            body = post.get('message')
+
 
         return cls(
             attachment=attachment,
@@ -419,8 +467,12 @@ class FacebookPost(ImportedPost):
             source=source,
             creation_date=creation_date,
             discussion=discussion,
-            body=body,
-            creator=creator_agent)
+            creator=creator_agent,
+            post_type=post_type,
+            imported_blob=blob,
+            subject=subject,
+            body=body
+            )
 
 
 # class Likes(Base):
@@ -497,23 +549,32 @@ class FacebookManager(object):
 
     def create_fb_user(self, user, db):
         if user['id'] not in db:
+            avatar_url = self.parser.get_user_profile_photo(user)
             new_user = FacebookUser.create(
                 user,
                 self.provider,
-                self.parser.get_app_id()
+                self.parser.get_app_id(),
+                avatar_url
             )
             self.db.add(new_user)
             self.db.flush()
             db[user['id']] = new_user
 
     def create_post(self, post, user, db):
-        if post['id'] not in db and 'message' in post:
+        # Utility method that creates the post and populates the local
+        # cache.
+        # Returns True if succesfull. False if post is not created.
+        if post['id'] not in db:
             new_post = FacebookPost.create(self.source, post, user)
+            if not new_post:
+                return False
             self.db.add(new_post)
             self.db.flush()
             db[post['id']] = new_post
+            return True
 
-    def convert_feed(self):
+    def feed(self, limit=None):
+        counter = 0
         print "Creating users and posts caches"
         users_db = self._get_current_users()
         posts_db = self._get_current_posts()
@@ -529,23 +590,26 @@ class FacebookManager(object):
             users_db
         )
 
-        print "Begin fetching all posts"
-
         for post in self.parser.get_posts_paginated(obj_id):
+            if limit:
+                if counter >= limit:
+                    break
             post_id = post.get('id')
             creator = self.parser.get_user_post_creator(post)
             self.create_fb_user(creator, users_db)
 
-            print "Created the user of the poser"
             for user in self.parser.get_users_post_to_sans_self(post, obj_id):
                 self.create_fb_user(user, users_db)
 
             creator_id = creator.get('id', None)
             creator_agent = users_db.get(creator_id)
-            self.create_post(post, creator_agent, posts_db)
+            result = self.create_post(post, creator_agent, posts_db)
+            if not result:
+                continue
+
             assembl_post = posts_db.get(post_id)
-            print "Created the post object"
             self.db.commit()
+            counter += 1
 
             for comment in self.parser.get_comments_paginated2(post):
                 user = self.parser.get_user_from_comment(comment)
@@ -556,11 +620,14 @@ class FacebookManager(object):
                     comment)
                 for usr in targeted_users:
                     self.create_fb_user(usr, users_db)
-                print "Creating users of the comment"
                 self.db.commit()
 
                 cmt_creator_agent = users_db.get(user_id)
-                self.create_post(comment, cmt_creator_agent, posts_db)
+                cmt_result = self.create_post(comment,
+                                              cmt_creator_agent, posts_db)
+                if not cmt_result:
+                    continue
+
                 self.db.flush()
                 comment_post = posts_db.get(comment_id)
                 comment_post.set_parent(assembl_post)
