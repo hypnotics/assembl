@@ -88,24 +88,8 @@ class FacebookParser(object):
         self.api = api.api_caller()
         self.user_flush_state = None
 
-    def get_app_id(self):
-        return self.fb_api.app_id
-
-    def get_object_info(self, object_id):
-        return self.api.get_object(object_id)
-
-    # Define endpoint choice, 'feed', 'posts', etc
-    def get_object_wall(self, object_id, **kwargs):
-        if 'wall' in kwargs:
-            endpoint = kwargs.pop('wall')
-            resp = self.api.get_connections(object_id, endpoint, **kwargs)
-            if 'next' in resp['paging']:
-                return resp['data'], resp['paging']['next']
-            else:
-                return resp['data'], None
-
-    # This is completely non-generic and only works for groups
-    def get_object_feed(self, object_id, **args):
+    # ----------------------------- feeds -------------------------------------
+    def get_feed(self, object_id, **args):
         resp = self.api.get_connections(object_id, 'feed', **args)
         if 'paging' in resp:
             if 'next' in resp['paging']:
@@ -113,31 +97,7 @@ class FacebookParser(object):
         else:
             return resp['data'], None
 
-    def get_object_comments(self, object_id, **args):
-        resp = self.api.get_connections(object_id, 'comments', **args)
-        if 'paging' in resp:
-            if 'next' in resp['paging']:
-                return resp['data'], resp['paging']['next']
-        else:
-            return resp['data'], None
-
-    def get_edge(self, object_id, **kwargs):
-        # Generic version of the above 2 functions
-        # edge='edge_name'
-        if 'edge' in kwargs:
-            endpoint = kwargs.pop('edge')
-            resp = self.api.get_connection(object_id, endpoint, **kwargs)
-            if 'next' in resp['paging']:
-                return resp['data'], resp['paging']['next']
-            else:
-                return resp['data'], None
-
-    def _get_query_from_url(self, page):
-        parse = urlparse(page)
-        qs = parse_qs(parse.query)
-        return qs
-
-    def _get_next_object_wall(self, object_id, page):
+    def _get_next_feed(self, object_id, page):
         # This is completely non-generic and ONLY works for groups and posts
         next_page = page
         while True:
@@ -149,11 +109,29 @@ class FacebookParser(object):
                 'until': qs['until'][0],
                 '__paging_token': qs['__paging_token'][0]
             }
-            wall, page = self.get_object_feed(object_id, **args)
+            wall, page = self.get_feed(object_id, **args)
             next_page = page
             if not wall:
                 raise StopIteration
             yield wall
+
+    def get_feed_paginated(self, object_id):
+        wall, page = self.get_feed(object_id)
+        for post in wall:
+            yield post
+        if page:
+            for wall_posts in self._get_next_feed(object_id, page):
+                for post in iter(wall_posts):
+                    yield post
+
+    # ----------------------------- comments ----------------------------------
+    def get_comments(self, object_id, **args):
+        resp = self.api.get_connections(object_id, 'comments', **args)
+        if 'paging' in resp:
+            if 'next' in resp['paging']:
+                return resp['data'], resp['paging']['next']
+        else:
+            return resp['data'], None
 
     def _get_next_comments(self, object_id, page):
         next_page = page
@@ -165,36 +143,13 @@ class FacebookParser(object):
                 'limit': qs['limit'][0],
                 'after': qs['after'][0]
             }
-            comments, page = self.get_object_comments(object_id, **args)
+            comments, page = self.get_comments(object_id, **args)
             next_page = page
             if not comments:
                 raise StopIteration
             yield comments
 
-    def _get_next_post_from(self, wall):
-        # Wall is an array of data
-        for post in wall:
-            yield post
-
-    def get_posts_paginated(self, object_id):
-        wall, page = self.get_object_feed(object_id)
-        for post in wall:
-            yield post
-        if page:
-            for wall in self._get_next_object_wall(object_id, page):
-                for post in self._get_next_post_from(wall):
-                    yield post
-
-    def get_comments_paginated(self, post_id):
-        comments, page = self.get_object_comments(post_id)
-        for comment in comments:
-            yield comment
-        if page:
-            for comments in self._get_next_comments(post_id, page):
-                for comment in comments:
-                    yield comment
-
-    def get_comments_paginated2(self, post):
+    def get_comments_paginated(self, post):
         # A generator object
         if 'comments' not in post:
             raise StopIteration
@@ -204,13 +159,61 @@ class FacebookParser(object):
             yield comment
         self._get_next_comments(post['id'], next_page)
 
-    def get_posts(self, object_id):
-        wall, _ = self.get_object_feed(object_id)
+    # ----------------------------- posts -------------------------------------
+    def get_posts(self, object_id, **args):
+        resp = self.api.get_connections(object_id, 'posts', **args)
+        if 'paging' is resp:
+            if 'next' in resp['paging']:
+                return resp['data'], resp['paging']['next']
+        else:
+            return resp['data'], None
+
+    def _get_next_posts_page(self, object_id, page):
+        next_page = page
+        while True:
+            if not next_page:
+                raise StopIteration
+            qs = self._get_query_from_url(next_page)
+            args = {
+                'limit': qs['limit'][0],
+                'after': qs['after'][0]
+            }
+            posts, page = self.get_posts(object_id, **args)
+            next_page = page
+            if not posts:
+                raise StopIteration
+            yield posts
+
+    def get_posts_paginated(self, object_id):
+        wall, page = self.get_posts(object_id)
         for post in wall:
             yield post
+        if page:
+            for page_post in self._get_next_posts_page(object_id, page):
+                for post in iter(page_post):
+                    yield post
+    # -------------------------------------------------------------------------
 
-    # def get_user(self, user_id):
-    #     profile_pic = self.api.get_connection(user_id, 'picture')
+    def get_app_id(self):
+        return self.fb_api.app_id
+
+    def get_object_info(self, object_id):
+        return self.api.get_object(object_id)
+
+    # Define endpoint choice, 'feed', 'posts', etc
+    def get_wall(self, object_id, **kwargs):
+        if 'wall' in kwargs:
+            endpoint = kwargs.pop('wall')
+            resp = self.api.get_connections(object_id, endpoint, **kwargs)
+            if 'next' in resp['paging']:
+                return resp['data'], resp['paging']['next']
+            else:
+                return resp['data'], None
+
+    def _get_query_from_url(self, page):
+        parse = urlparse(page)
+        qs = parse_qs(parse.query)
+        return qs
 
     def get_user_post_creator(self, post):
         # Return {'id': ..., 'name': ...}
@@ -226,51 +229,29 @@ class FacebookParser(object):
         users = self.get_users_post_to(post)
         return [x for x in users if x['id'] != self_id]
 
-    # def get_comments_from_post(self,post):
-    #     # Return [comment1, comment2, comment2, ...]
-    #     return post['comments']['data']
-
-    # Basic and not a generator. Might be scraped
-    def get_comments_from(self, post):
-        # Return the [comments] , {'before': ... , 'after':...} paging token
-        if 'comments' in post:
-            if 'paging' in post['comments']:
-                if 'next' in post['comments']['paging']:
-                    return post['comments']['data'], \
-                        post['comments']['paging']['next']
-            else:
-                return post['comments']['data'], None
-        else:
-            return None, None
-
-    # Basic and not a generator. Might be scraped
-    def get_likes_from(self, post):
-        if 'likes' in post['data']:
-            if 'next' in post['paging']:
-                return post['likes']['data'], post['likes']['paging']['next']
-            else:
-                return post['likes']['data'], None
-        else:
-            return None, None
-
     def get_user_from_comment(self, comment):
         return comment['from']
 
-    def get_users_from_comment_mention(self, comment):
-        if 'message_tags' in comment:
+    def _get_tagged_entities(self, source, entity_type):
+        if 'message_tags' in source:
             # Messaage_tags can either be directly linked, or they can be
             # ordinal keys (dict of dict)
             # Check if no ordinality exists:
-            if 'id' in comment['message_tags'][0]:
-                return [x for x in comment['message_tags']
-                        if x['type'] == 'user']
+            if 'id' in source['message_tags'][0]:
+                return [x for x in source['message_tags']
+                        if x['type'] == entity_type]
             else:
-                ordinal_dict = comment['message_tags']
+                ordinal_dict = source['message_tags']
                 return [y for y in ordinal_dict.itervalues()
-                        if y['type'] == 'user']
-
+                        if y['type'] == entity_type]
         else:
             return []
+
+    def get_users_from_mention(self, comment):
+        return self._get_tagged_entities(comment, 'user')
+
+    def get_pages_from_mention(self, post):
+        return self._get_tagged_entities(post, 'page')
 
     def get_user_object_creator(self, obj):
         # Great for adding the group/page/event creator to list of users
@@ -288,6 +269,7 @@ class FacebookParser(object):
         if not profile_info.get('is_silhouette', False):
             return profile_info.get('url')
         return None
+
 
 class FacebookUser(IdentityProviderAccount):
     __tablename__ = 'facebook_user'
@@ -575,11 +557,9 @@ class FacebookManager(object):
 
     def feed(self, limit=None):
         counter = 0
-        print "Creating users and posts caches"
         users_db = self._get_current_users()
         posts_db = self._get_current_posts()
 
-        print "Created db of users"
         # first, get group/page/info from source
         obj_id = self.source.fb_source_id
         object_info = self.parser.get_object_info(obj_id)
@@ -590,7 +570,7 @@ class FacebookManager(object):
             users_db
         )
 
-        for post in self.parser.get_posts_paginated(obj_id):
+        for post in self.parser.get_feed_paginated(obj_id):
             if limit:
                 if counter >= limit:
                     break
@@ -598,6 +578,7 @@ class FacebookManager(object):
             creator = self.parser.get_user_post_creator(post)
             self.create_fb_user(creator, users_db)
 
+            # Get all of the tagged users instead?
             for user in self.parser.get_users_post_to_sans_self(post, obj_id):
                 self.create_fb_user(user, users_db)
 
@@ -611,12 +592,65 @@ class FacebookManager(object):
             self.db.commit()
             counter += 1
 
-            for comment in self.parser.get_comments_paginated2(post):
+            for comment in self.parser.get_comments_paginated(post):
                 user = self.parser.get_user_from_comment(comment)
                 user_id = user.get('id')
                 comment_id = comment.get('id')
                 self.create_fb_user(user, users_db)
-                targeted_users = self.parser.get_users_from_comment_mention(
+                targeted_users = self.parser.get_users_from_mention(
+                    comment)
+                for usr in targeted_users:
+                    self.create_fb_user(usr, users_db)
+                self.db.commit()
+
+                cmt_creator_agent = users_db.get(user_id)
+                cmt_result = self.create_post(comment,
+                                              cmt_creator_agent, posts_db)
+                if not cmt_result:
+                    continue
+
+                self.db.flush()
+                comment_post = posts_db.get(comment_id)
+                comment_post.set_parent(assembl_post)
+
+                self.db.commit()
+
+    def posts(self, limit=None):
+        counter = 0
+        users_db = self._get_current_users()
+        posts_db = self._get_current_posts()
+
+        # first, get group/page/info from source
+        obj_id = self.source.fb_source_id
+
+        for post in self.parser.get_feed_paginated(obj_id):
+            if limit:
+                if counter >= limit:
+                    break
+            post_id = post.get('id')
+            creator = self.parser.get_user_post_creator(post)
+            self.create_fb_user(creator, users_db)
+
+            # What about tagged entities?
+            for user in self.parser.get_users_post_to_sans_self(post, obj_id):
+                self.create_fb_user(user, users_db)
+
+            creator_id = creator.get('id', None)
+            creator_agent = users_db.get(creator_id)
+            result = self.create_post(post, creator_agent, posts_db)
+            if not result:
+                continue
+
+            assembl_post = posts_db.get(post_id)
+            self.db.commit()
+            counter += 1
+
+            for comment in self.parser.get_comments_paginated(post):
+                user = self.parser.get_user_from_comment(comment)
+                user_id = user.get('id')
+                comment_id = comment.get('id')
+                self.create_fb_user(user, users_db)
+                targeted_users = self.parser.get_users_from_mention(
                     comment)
                 for usr in targeted_users:
                     self.create_fb_user(usr, users_db)
