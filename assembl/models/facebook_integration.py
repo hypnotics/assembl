@@ -335,6 +335,11 @@ class FacebookGenericSource(PostSource):
 
     fb_source_id = Column(String(512), nullable=False)
     url_path = Column(String(1024))
+    creator_id = Column(Integer, ForeignKey('facebook_user.id',
+                        onupdate='CASCADE', ondelete='CASCADE'))
+    creator = relationship(FacebookUser,
+                           backref=backref('sources',
+                                           cascade="all, delete-orphan"))
 
     __mapper_args__ = {
         'polymorphic_identity': 'facebook_source'
@@ -359,22 +364,15 @@ class FacebookGroupSource(FacebookGenericSource):
     }
 
 
-class FacebookGroupSourceFromUser(FacebookGroupSource):
-    __tablename__ = 'facebook_private_group_source'
-
-    id = Column(Integer, ForeignKey(
-                'facebook_source.id',
-                ondelete='CASCADE',
-                onupdate='CASCADE'), primary_key=True)
-
-    created_by = Column(Integer, ForeignKey('facebook_user.id',
-                        onupdate='CASCADE', ondelete='CASCADE'))
-    creator = relationship(FacebookUser,
-                           backref=backref('sources',
-                                           cascade="all, delete-orphan"))
-
+class FacebookGroupSourceFromUser(FacebookGenericSource):
     __mapper_args__ = {
         'polymorphic_identity': 'facebook_private_group_source'
+    }
+
+
+class FacebookSinglePostSource(FacebookGenericSource):
+    __mapper_args__ = {
+        'polymorphic_identity': 'facebook_singlepost_source'
     }
 
 
@@ -438,7 +436,6 @@ class FacebookPost(ImportedPost):
                 # It is useless, therefore it should never generate a post
                 return None
             body = post.get('message')
-
 
         return cls(
             attachment=attachment,
@@ -564,7 +561,6 @@ class FacebookManager(object):
         obj_id = self.source.fb_source_id
         object_info = self.parser.get_object_info(obj_id)
 
-        print "Creating user who created the group"
         self.create_fb_user(
             self.parser.get_user_object_creator(object_info),
             users_db
