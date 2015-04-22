@@ -83,7 +83,6 @@ class FacebookParser(object):
     # to which API sdk to use
 
     def __init__(self, api):
-        print "I just created an API Endpoint"
         self.fb_api = api
         self.api = api.api_caller()
         self.user_flush_state = None
@@ -127,11 +126,7 @@ class FacebookParser(object):
     # ----------------------------- comments ----------------------------------
     def get_comments(self, object_id, **args):
         resp = self.api.get_connections(object_id, 'comments', **args)
-        if 'paging' in resp:
-            if 'next' in resp['paging']:
-                return resp['data'], resp['paging']['next']
-        else:
-            return resp['data'], None
+        return resp.get('data', []), resp.get('paging', {}).get('next', None)
 
     def _get_next_comments(self, object_id, page):
         next_page = page
@@ -153,11 +148,24 @@ class FacebookParser(object):
         # A generator object
         if 'comments' not in post:
             raise StopIteration
-        comments = post['comments']['data']
-        next_page = post.get('paging', {}).get('next', None)
+        comments = post.get('comments')
+        comments_data = comments.get('data')
+        next_page = comments.get('paging', {}).get('next', None)
+        for comment in comments_data:
+            yield comment
+        for comments in self._get_next_comments(post.get('id'), next_page):
+            for comment in comments:
+                yield comment
+
+    def get_comments_on_comment_paginated(self, parent_comment):
+        comments, next_page = self.get_comments(parent_comment.get('id'))
         for comment in comments:
             yield comment
-        self._get_next_comments(post['id'], next_page)
+        for comments in self._get_next_comments(
+                                           parent_comment.get('id'),
+                                           next_page):
+            for comment in comments:
+                yield comment
 
     # ----------------------------- posts -------------------------------------
     def get_posts(self, object_id, **args):
@@ -367,6 +375,12 @@ class FacebookGroupSource(FacebookGenericSource):
 class FacebookGroupSourceFromUser(FacebookGenericSource):
     __mapper_args__ = {
         'polymorphic_identity': 'facebook_private_group_source'
+    }
+
+
+class FacebookPageSource(FacebookGenericSource):
+    __mapper_args__ = {
+        'polymorphic_identity': 'facebook_page_source'
     }
 
 
