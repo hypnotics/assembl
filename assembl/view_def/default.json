@@ -68,6 +68,13 @@
         "username": true,
         "picture_url": true
     },
+    "FacebookUser": {
+        "@extends": "IdentityProviderAccount",
+        "oauth_token": true,
+        "oauth_token_longlived": true,
+        "oauth_expiry": false,
+        "app_id": true
+    },
     "IdentityProvider": {
         "name": true,
         "provider_type": true,
@@ -90,6 +97,21 @@
     },
     "LoomioPostSource": {
         "@extends": "FeedPostSource"
+    },
+    "FacebookGenericSource": {
+        "@extends": "PostSource",
+        "fb_source_id": true,
+        "url_path": true,
+        "creator_id": true
+    },
+    "FacebookGroupSource": {
+        "@extends": "FacebookGenericSource"
+    },
+    "FacebookGroupSourceFromUser": {
+        "@extends": "FacebookGenericSource"
+    },
+    "FacebookSinglePostSource": {
+        "@extends": "FacebookGenericSource"
     },
     "AnnotatorSource": {
         "@extends": "ContentSource"
@@ -168,6 +190,12 @@
     },
     "SourceSpecificPost": {
         "@extends": "ImportedPost"
+    },
+    "FacebookPost": {
+        "@extends": "ImportedPost",
+        "attachment": true,
+        "link_name": true,
+        "post_type": true
     },
     "Webpage": {
         "@extends": "Content",
