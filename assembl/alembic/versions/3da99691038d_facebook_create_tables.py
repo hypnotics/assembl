@@ -39,16 +39,10 @@ def upgrade(pyramid_env):
                       onupdate='CASCADE',
                       ondelete='CASCADE'), primary_key=True),
             sa.Column('fb_source_id', sa.String(512), nullable=False),
-            sa.Column('url_path', sa.String(1024)))
-
-        op.create_table(
-            'facebook_private_group_source',
-            sa.Column('id', sa.Integer, sa.ForeignKey('facebook_source.id',
-                      onupdate='CASCADE',
-                      ondelete='CASCADE'), primary_key=True),
-            sa.Column('created_by', sa.Integer,
+            sa.Column('url_path', sa.String(1024)),
+            sa.Column('creator_id', sa.Integer,
                       sa.ForeignKey('facebook_user.id',
-                      onupdate='CASCADE', ondelete='CASCADE')))
+                                    onupdate='CASCADE', ondelete='CASCADE')))
 
         op.create_table(
             'facebook_post',
@@ -56,7 +50,8 @@ def upgrade(pyramid_env):
                       onupdate='CASCADE',
                       ondelete='CASCADE'), primary_key=True),
             sa.Column('attachment', sa.String(1024)),
-            sa.Column('link_name', CoerceUnicode(1024)))
+            sa.Column('link_name', CoerceUnicode(1024)),
+            sa.Column('post_type', sa.String(20)))
 
 
     # Do stuff with the app's models here.
@@ -69,6 +64,5 @@ def upgrade(pyramid_env):
 def downgrade(pyramid_env):
     with context.begin_transaction():
         op.drop_table('facebook_post')
-        op.drop_table('facebook_private_group_source')
         op.drop_table('facebook_source')
         op.drop_table('facebook_user')
