@@ -14,6 +14,7 @@ from .auth import (
 )
 
 import facebook
+from abc import abstractmethod
 from virtuoso.alchemy import CoerceUnicode
 # from ..lib.sqla import get_session_maker, Base
 from sqlalchemy.orm import relationship, backref
@@ -301,11 +302,6 @@ class FacebookUser(IdentityProviderAccount):
     def populate_picture(self, profile):
         self.picture_url = 'http://graph.facebook.com/%s/picture' % self.userid
 
-    # @override
-    #def avatar_url(self, size=32):
-        # Override the behavior to return the following:
-        # https://graph.facebook.com/user_id/picture?size=32
-
     @classmethod
     def create(cls, user, provider, app_id, avatar_url=None):
         userid = user.get('id')
@@ -348,6 +344,10 @@ class FacebookGenericSource(PostSource):
         'polymorphic_identity': 'facebook_source'
     }
 
+    @abstractmethod
+    def fetch_content(self, api):
+        self._setup_reading(api)
+
     def make_reader(self):
         api = FacebookAPI()
         return FacebookReader(self.id, api)
@@ -360,9 +360,167 @@ class FacebookGenericSource(PostSource):
                    discussion=discussion, fb_source_id=fb_id,
                    url_path=url, last_import=last_import)
 
-    @classmethod
-    def fetch_content(cls, manager):
-        raise NotImplemented()
+    def _setup_reading(self, api):
+        self.provider = None
+        self._get_facebook_provider()
+        self.parser = FacebookParser(api)
+
+    def _get_facebook_provider(self):
+        if not self.provider:
+            fb = self.db.query(IdentityProvider).\
+                filter_by(name='facebook').first()
+            self.provider = fb
+
+    def _get_current_users(self):
+        result = self.db.query(IdentityProviderAccount).\
+            filter_by(domain=DOMAIN).all()
+        return {x.userid: x for x in result}
+
+    def _get_current_posts(self):
+        results = self.db.query(FacebookPost).filter_by(
+            source=self).all()
+        return {x.source_post_id: x for x in results}
+
+    def _create_fb_user(self, user, db):
+        if user['id'] not in db:
+            # avatar_url = self.parser.get_user_profile_photo(user)
+            new_user = FacebookUser.create(
+                user,
+                self.provider,
+                self.parser.get_app_id()
+            )
+            self.db.add(new_user)
+            self.db.flush()
+            db[user['id']] = new_user
+
+    def _create_post(self, post, user, db):
+        # Utility method that creates the post and populates the local
+        # cache.
+        # Returns True if succesfull. False if post is not created.
+        if post['id'] not in db:
+            new_post = FacebookPost.create(self.source, post, user)
+            if not new_post:
+                return False
+            self.db.add(new_post)
+            self.db.flush()
+            db[post['id']] = new_post
+            return True
+
+    def _manage_post(self, post, obj_id, posts_db, users_db):
+        post_id = post.get('id')
+        creator = self.parser.get_user_post_creator(post)
+        self._create_fb_user(creator, users_db)
+
+        # Get all of the tagged users instead?
+        for user in self.parser.get_users_post_to_sans_self(post, obj_id):
+            self._create_fb_user(user, users_db)
+
+        creator_id = creator.get('id', None)
+        creator_agent = users_db.get(creator_id)
+        result = self._create_post(post, creator_agent, posts_db)
+
+        if not result:
+            raise StopIteration
+
+        assembl_post = posts_db.get(post_id)
+        self.db.commit()
+        return assembl_post
+
+    def _manage_comment(self, comment, parent_post, posts_db, users_db):
+        user = self.parser.get_user_from_comment(comment)
+        user_id = user.get('id')
+        comment_id = comment.get('id')
+        self._create_fb_user(user, users_db)
+        for usr in self.parser.get_users_from_mention(comment):
+            self._create_fb_user(usr, users_db)
+        self.db.commit()
+
+        cmt_creator_agent = users_db.get(user_id)
+        cmt_result = self._create_post(comment,
+                                      cmt_creator_agent, posts_db)
+        if not cmt_result:
+            raise StopIteration
+
+        self.db.flush()
+        comment_post = posts_db.get(comment_id)
+        comment_post.set_parent(parent_post)
+        self.db.commit()
+        return comment_post
+
+    def _manage_comment_subcomments(self, comment, parent_post,
+                                    posts_db, users_db,
+                                    sub_comments=False):
+        comment_post = self._manage_comment(comment, parent_post,
+                                            posts_db, users_db)
+        if sub_comments:
+            for cmt in self.parser.get_comments_on_comment_paginated(comment):
+                try:
+                    _ = self._manage_comment(cmt, comment_post, posts_db,
+                                             users_db)
+                except StopIteration:
+                    continue
+
+    def feed(self, post_limit=None, cmt_limit=None):
+        counter = 0
+        comment_counter = 0
+        users_db = self._get_current_users()
+        posts_db = self._get_current_posts()
+
+        # first, get group/page/info from source
+        post_container_id = self.source.fb_source_id
+        object_info = self.parser.get_object_info(post_container_id)
+
+        self._create_fb_user(
+            self.parser.get_user_object_creator(object_info),
+            users_db
+        )
+
+        for post in self.parser.get_feed_paginated(post_container_id):
+            if post_limit:
+                if counter >= post_limit:
+                    break
+            try:
+                assembl_post = self._manage_post(post, post_container_id,
+                                                 posts_db, users_db)
+            except StopIteration:
+                continue
+
+            counter += 1
+            for comment in self.parser.get_comments_paginated(post):
+                if cmt_limit:
+                    if comment_counter >= cmt_limit:
+                        break
+                try:
+                    self._manage_comment_subcomments(comment, assembl_post,
+                                                     posts_db, users_db)
+                except StopIteration:
+                    continue
+
+    def posts(self, post_limit=None):
+        counter = 0
+        users_db = self._get_current_users()
+        posts_db = self._get_current_posts()
+
+        post_container_id = self.source.fb_source_id
+
+        for post in self.parser.get_posts_paginated(post_container_id):
+            if post_limit:
+                if counter >= post_limit:
+                    break
+            try:
+                assembl_post = self._manage_post(post, post_container_id,
+                                                 posts_db, users_db)
+            except StopIteration:
+                continue
+
+            counter += 1
+            for comment in self.parser.get_comments_paginated(post):
+                try:
+                    self._manage_comment_subcomments(comment, assembl_post,
+                                                     posts_db, users_db,
+                                                     True)
+                except StopIteration:
+                    continue
 
 
 class FacebookGroupSource(FacebookGenericSource):
@@ -370,9 +528,9 @@ class FacebookGroupSource(FacebookGenericSource):
         'polymorphic_identity': 'facebook_open_group_source'
     }
 
-    @classmethod
-    def fetch_content(cls, manager):
-        return manager.feed()
+    def fetch_content(self, api, limit=None):
+        self._setup_reading()
+        self.feed(limit)
 
 
 class FacebookGroupSourceFromUser(FacebookGenericSource):
@@ -385,24 +543,27 @@ class FacebookPageSource(FacebookGenericSource):
     __mapper_args__ = {
         'polymorphic_identity': 'facebook_page_source'
     }
-    @classmethod
-    def fetch_content(cls, manager):
-        return manager.posts()
+
+    def fetch_content(self, api):
+        self._setup_reading(api)
 
 
 class FacebookFeedPageSource(FacebookGenericSource):
     __mapper_args__ = {
         'polymorphic_identity': 'facebook_page_source'
     }
-    @classmethod
-    def fetch_content(cls, manager):
-        return manager.feed()
+
+    def fetch_content(self, api):
+        self._setup_reading(api)
 
 
 class FacebookSinglePostSource(FacebookGenericSource):
     __mapper_args__ = {
         'polymorphic_identity': 'facebook_singlepost_source'
     }
+
+    def fetch_content(self, api):
+        self._setup_reading(api)
 
 
 class FacebookPost(ImportedPost):
@@ -426,7 +587,6 @@ class FacebookPost(ImportedPost):
 
     @classmethod
     def create(cls, source, post, user):
-        #
         import_date = datetime.utcnow()
         source_post_id = post.get('id')
         source = source
@@ -483,220 +643,6 @@ class FacebookPost(ImportedPost):
             )
 
 
-# class Likes(Base):
-#     __tablename__ = 'generic_post_likes'
-
-#     id = Column(Integer, primary_key=True)
-#     type = Column(String(60), nullable=False)
-#     source_id = Column(Integer, ForeignKey('content.id',
-#                        onupdate='CASCADE', ondelete = 'CASCADE'))
-#     source = relationship(Content, backref=backref('liked_user'))
-#     user_id = Column(Integer, ForeignKey('abstract_agent_account.id',
-#         onupdate='CASCADE', ondelete='CASCADE'))
-#     user = relationship(AbstractAgentAccount, backref=backref('liked_posts'))
-
-#     __mapper_args__ = {
-#         'polymorphic_identity': 'facebook_likes',
-#         'with_polymorphic': '*',
-#         'polymorphic_on': type
-#     }
-
-
-# class FacebookLikes(Likes):
-#     __mapper_args__ = {
-#         'polymorphic_identity': 'facebook_likes '
-#     }
-
-# class Tags(Base):
-#     __tablename__ = 'hashtag'
-
-#     id = Column(Integer, primary_key=True)
-#     # The hashtage, without the #
-#     tag = Column(CoerceUnicode(256), nullable = False, unique=True)
-#     created_date = Column(DateTime)
-
-
-# class PostTagRelationship(Base):
-#     __tablename__ = 'post_tag_relationship'
-#     id = Column(Integer, ForeignKey(Tags.id,
-#                 onupdate= 'CASCADE',
-#                 ondelete='CASCADE'), primary_key=True)
-#     tag = relationship(Tags, backref=backref('post_tag_relationships'))
-#     user_id = Column(Integer, ForeignKey(Tags.id,
-#                      onupdate='CASCADE', ondelete='CASCADE'))
-#     user = relationship(AbstractAgentAccount, backref=backref('tags'))
-#     post_id = Column(Integer, ForeignKey(Content.id,
-#                      onupdate='CASCADE', ondelete='CASCADE'))
-#     post = relationship(Content, backref=backref('tags'))
-
-
-class FacebookManager(object):
-    def __init__(self, source):
-        self.source = source
-        self.api = FacebookAPI()
-        self.parser = FacebookParser(self.api)
-        self.db = source.db
-        self.provider = None
-        self._get_facebook_provider()
-
-    def _get_facebook_provider(self):
-        if not self.provider:
-            fb = self.db.query(IdentityProvider).\
-                filter_by(name='facebook').first()
-            self.provider = fb
-
-    def _get_current_users(self):
-        result = self.db.query(IdentityProviderAccount).\
-            filter_by(domain=DOMAIN).all()
-        return {x.userid: x for x in result}
-
-    def _get_current_posts(self):
-        results = self.db.query(FacebookPost).filter_by(
-            source=self.source).all()
-        return {x.source_post_id: x for x in results}
-
-    def create_fb_user(self, user, db):
-        if user['id'] not in db:
-            # avatar_url = self.parser.get_user_profile_photo(user)
-            new_user = FacebookUser.create(
-                user,
-                self.provider,
-                self.parser.get_app_id()
-            )
-            self.db.add(new_user)
-            self.db.flush()
-            db[user['id']] = new_user
-
-    def create_post(self, post, user, db):
-        # Utility method that creates the post and populates the local
-        # cache.
-        # Returns True if succesfull. False if post is not created.
-        if post['id'] not in db:
-            new_post = FacebookPost.create(self.source, post, user)
-            if not new_post:
-                return False
-            self.db.add(new_post)
-            self.db.flush()
-            db[post['id']] = new_post
-            return True
-
-    def _manage_post(self, post, obj_id, posts_db, users_db):
-        post_id = post.get('id')
-        creator = self.parser.get_user_post_creator(post)
-        self.create_fb_user(creator, users_db)
-
-        # Get all of the tagged users instead?
-        for user in self.parser.get_users_post_to_sans_self(post, obj_id):
-            self.create_fb_user(user, users_db)
-
-        creator_id = creator.get('id', None)
-        creator_agent = users_db.get(creator_id)
-        result = self.create_post(post, creator_agent, posts_db)
-
-        if not result:
-            raise StopIteration
-
-        assembl_post = posts_db.get(post_id)
-        self.db.commit()
-        return assembl_post
-
-    def _manage_comment(self, comment, parent_post, posts_db, users_db):
-        user = self.parser.get_user_from_comment(comment)
-        user_id = user.get('id')
-        comment_id = comment.get('id')
-        self.create_fb_user(user, users_db)
-        for usr in self.parser.get_users_from_mention(comment):
-            self.create_fb_user(usr, users_db)
-        self.db.commit()
-
-        cmt_creator_agent = users_db.get(user_id)
-        cmt_result = self.create_post(comment,
-                                      cmt_creator_agent, posts_db)
-        if not cmt_result:
-            raise StopIteration
-
-        self.db.flush()
-        comment_post = posts_db.get(comment_id)
-        comment_post.set_parent(parent_post)
-        self.db.commit()
-        return comment_post
-
-    def _manage_comment_subcomments(self, comment, parent_post,
-                                    posts_db, users_db,
-                                    sub_comments=False):
-        comment_post = self._manage_comment(comment, parent_post,
-                                            posts_db, users_db)
-        if sub_comments:
-            for cmt in self.parser.get_comments_on_comment_paginated(comment):
-                try:
-                    _ = self._manage_comment(cmt, comment_post, posts_db,
-                                             users_db)
-                except StopIteration:
-                    continue
-
-    def feed(self, post_limit=None, cmt_limit=None):
-        counter = 0
-        comment_counter = 0
-        users_db = self._get_current_users()
-        posts_db = self._get_current_posts()
-
-        # first, get group/page/info from source
-        post_container_id = self.source.fb_source_id
-        object_info = self.parser.get_object_info(post_container_id)
-
-        self.create_fb_user(
-            self.parser.get_user_object_creator(object_info),
-            users_db
-        )
-
-        for post in self.parser.get_feed_paginated(post_container_id):
-            if post_limit:
-                if counter >= post_limit:
-                    break
-            try:
-                assembl_post = self._manage_post(post, post_container_id,
-                                                 posts_db, users_db)
-            except StopIteration:
-                continue
-
-            counter += 1
-            for comment in self.parser.get_comments_paginated(post):
-                if cmt_limit:
-                    if comment_counter >= cmt_limit:
-                        break
-                try:
-                    self._manage_comment_subcomments(comment, assembl_post,
-                                                     posts_db, users_db)
-                except StopIteration:
-                    continue
-
-    def posts(self, post_limit=None):
-        counter = 0
-        users_db = self._get_current_users()
-        posts_db = self._get_current_posts()
-
-        post_container_id = self.source.fb_source_id
-
-        for post in self.parser.get_posts_paginated(post_container_id):
-            if post_limit:
-                if counter >= post_limit:
-                    break
-            try:
-                assembl_post = self._manage_post(post, post_container_id,
-                                                 posts_db, users_db)
-            except StopIteration:
-                continue
-
-            counter += 1
-            for comment in self.parser.get_comments_paginated(post):
-                try:
-                    self._manage_comment_subcomments(comment, assembl_post,
-                                                     posts_db, users_db,
-                                                     True)
-                except StopIteration:
-                    continue
-
-
 class FacebookContent(object):
     def __init__(self, *args, **kwargs):
         print "Created the IFacebookContent"
@@ -731,9 +677,8 @@ class FacebookContentSink(object):
 class FacebookReader(PullSourceReader):
     def __init__(self, source):
         super(FacebookReader, self).__init__(source.id)
-        api = FacebookAPI()
-        self.manager = FacebookManager(source, api)
+        self.api = FacebookAPI()
 
     def do_read(self):
         # TODO reimporting
-        self.source.get_content(self.manager)
+        self.source.get_content(self.api)
