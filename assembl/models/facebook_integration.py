@@ -357,11 +357,19 @@ class FacebookGenericSource(PostSource):
                    discussion=discussion, fb_source_id=fb_id,
                    url_path=url, last_import=last_import)
 
+    @classmethod
+    def fetch_content(cls, manager):
+        raise NotImplemented()
+
 
 class FacebookGroupSource(FacebookGenericSource):
     __mapper_args__ = {
         'polymorphic_identity': 'facebook_open_group_source'
     }
+
+    @classmethod
+    def fetch_content(cls, manager):
+        return manager.feed()
 
 
 class FacebookGroupSourceFromUser(FacebookGenericSource):
@@ -374,6 +382,18 @@ class FacebookPageSource(FacebookGenericSource):
     __mapper_args__ = {
         'polymorphic_identity': 'facebook_page_source'
     }
+    @classmethod
+    def fetch_content(cls, manager):
+        return manager.posts()
+
+
+class FacebookFeedPageSource(FacebookGenericSource):
+    __mapper_args__ = {
+        'polymorphic_identity': 'facebook_page_source'
+    }
+    @classmethod
+    def fetch_content(cls, manager):
+        return manager.feed()
 
 
 class FacebookSinglePostSource(FacebookGenericSource):
@@ -712,7 +732,5 @@ class FacebookReader(PullSourceReader):
         self.manager = FacebookManager(source, api)
 
     def do_read(self):
-        if isinstance(self.source, FacebookGroupSource):
-            self.manager.feed()
-        elif isinstance(self.sourse, FacebookPageSource):
-            self.manager.posts()
+        # TODO reimporting
+        self.source.get_content(self.manager)
