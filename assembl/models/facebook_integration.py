@@ -298,6 +298,9 @@ class FacebookUser(IdentityProviderAccount):
             self.oauth_expiry = self.oauth_expiry + \
                 datetime.timedelta(0, expires)
 
+    def populate_picture(self, profile):
+        self.picture_url = 'http://graph.facebook.com/%s/picture' % self.userid
+
     # @override
     #def avatar_url(self, size=32):
         # Override the behavior to return the following:
