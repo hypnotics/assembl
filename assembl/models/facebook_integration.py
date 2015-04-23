@@ -165,8 +165,12 @@ class FacebookParser(object):
                 yield comment
 
     # ----------------------------- posts -------------------------------------
-    def get_posts(self, object_id, **args):
-        resp = self.api.get_connections(object_id, 'posts', **args)
+    def get_single_post(self, object_id, **kwargs):
+        resp = self.api.get_object(object_id, **kwargs)
+        return None if 'id' not in resp else resp
+
+    def get_posts(self, object_id, **kwargs):
+        resp = self.api.get_connections(object_id, 'posts', **kwargs)
         return resp.get('data', []), resp.get('paging', {}).get('next', None)
 
     def _get_next_posts_page(self, object_id, page):
@@ -270,57 +274,6 @@ class FacebookParser(object):
         return None
 
 
-class FacebookUser(IdentityProviderAccount):
-    __tablename__ = 'facebook_user'
-    __mapper_args__ = {
-        'polymorphic_identity': 'facebook_user'
-    }
-
-    id = Column(Integer, ForeignKey(
-        'idprovider_agent_account.id',
-        ondelete='CASCADE',
-        onupdate='CASCADE'), primary_key=True)
-    oauth_token = Column(String(1024))
-    oauth_token_longlived = Column(Boolean(),
-                                   default=False, server_default='0')
-    oauth_expiry = Column(DateTime)
-    app_id = Column(String(512))
-
-    def is_token_expired(self):
-        now = datetime.datetime.utcnow()
-        return now > self.oauth_expiry
-
-    def convert_to_longlived_token(self):
-        # Will only work on the revised version of the API
-        if not self.is_token_expired():
-            token, expires = FacebookAPI(self.oauth_token).extend_token()
-            self.oauth_token = token
-            self.oauth_token_longlived = True
-            self.oauth_expiry = self.oauth_expiry + \
-                datetime.timedelta(0, expires)
-
-    def populate_picture(self, profile):
-        self.picture_url = 'http://graph.facebook.com/%s/picture' % self.userid
-
-    @classmethod
-    def create(cls, user, provider, app_id, avatar_url=None):
-        userid = user.get('id')
-        full_name = user.get('name')
-        agent_profile = AgentProfile(name=full_name)
-        avatar = avatar_url or \
-            'http://graph.facebook.com/%s/picture' % userid
-
-        return cls(
-            provider=provider,
-            domain=DOMAIN,
-            userid=userid,
-            full_name=full_name,
-            profile=agent_profile,
-            app_id=app_id,
-            picture_url=avatar
-        )
-
-
 class FacebookGenericSource(PostSource):
     """
     A generic source
@@ -336,7 +289,7 @@ class FacebookGenericSource(PostSource):
     url_path = Column(String(1024))
     creator_id = Column(Integer, ForeignKey('facebook_user.id',
                         onupdate='CASCADE', ondelete='CASCADE'))
-    creator = relationship(FacebookUser,
+    creator = relationship('FacebookUser',
                            backref=backref('sources',
                                            cascade="all, delete-orphan"))
 
@@ -345,7 +298,7 @@ class FacebookGenericSource(PostSource):
     }
 
     @abstractmethod
-    def fetch_content(self, api):
+    def fetch_content(self, api, limit=None):
         self._setup_reading(api)
 
     def make_reader(self):
@@ -436,8 +389,7 @@ class FacebookGenericSource(PostSource):
         self.db.commit()
 
         cmt_creator_agent = users_db.get(user_id)
-        cmt_result = self._create_post(comment,
-                                      cmt_creator_agent, posts_db)
+        cmt_result = self._create_post(comment, cmt_creator_agent, posts_db)
         if not cmt_result:
             raise StopIteration
 
@@ -466,21 +418,18 @@ class FacebookGenericSource(PostSource):
         users_db = self._get_current_users()
         posts_db = self._get_current_posts()
 
-        # first, get group/page/info from source
-        post_container_id = self.source.fb_source_id
-        object_info = self.parser.get_object_info(post_container_id)
+        object_info = self.parser.get_object_info(self.fb_source_id)
 
         self._create_fb_user(
-            self.parser.get_user_object_creator(object_info),
-            users_db
+            self.parser.get_user_object_creator(object_info), users_db
         )
 
-        for post in self.parser.get_feed_paginated(post_container_id):
+        for post in self.parser.get_feed_paginated(self.fb_source_id):
             if post_limit:
                 if counter >= post_limit:
                     break
             try:
-                assembl_post = self._manage_post(post, post_container_id,
+                assembl_post = self._manage_post(post, self.fb_source_id,
                                                  posts_db, users_db)
             except StopIteration:
                 continue
@@ -501,14 +450,12 @@ class FacebookGenericSource(PostSource):
         users_db = self._get_current_users()
         posts_db = self._get_current_posts()
 
-        post_container_id = self.source.fb_source_id
-
-        for post in self.parser.get_posts_paginated(post_container_id):
+        for post in self.parser.get_posts_paginated(self.fb_source_id):
             if post_limit:
                 if counter >= post_limit:
                     break
             try:
-                assembl_post = self._manage_post(post, post_container_id,
+                assembl_post = self._manage_post(post, self.fb_source_id,
                                                  posts_db, users_db)
             except StopIteration:
                 continue
@@ -522,6 +469,9 @@ class FacebookGenericSource(PostSource):
                 except StopIteration:
                     continue
 
+    def single_post(self, limit=None):
+        raise NotImplementedError("To be developed after source/sink")
+
 
 class FacebookGroupSource(FacebookGenericSource):
     __mapper_args__ = {
@@ -529,7 +479,7 @@ class FacebookGroupSource(FacebookGenericSource):
     }
 
     def fetch_content(self, api, limit=None):
-        self._setup_reading()
+        self._setup_reading(api)
         self.feed(limit)
 
 
@@ -538,23 +488,29 @@ class FacebookGroupSourceFromUser(FacebookGenericSource):
         'polymorphic_identity': 'facebook_private_group_source'
     }
 
+    def fetch_content(self, api, limit=None):
+        self._setup_reading(api)
+        self.feed(limit)
 
-class FacebookPageSource(FacebookGenericSource):
+
+class FacebookPagePostsSource(FacebookGenericSource):
     __mapper_args__ = {
-        'polymorphic_identity': 'facebook_page_source'
+        'polymorphic_identity': 'facebook_page_posts_source'
     }
 
-    def fetch_content(self, api):
+    def fetch_content(self, api, limit=None):
         self._setup_reading(api)
+        self.posts(limit)
 
 
-class FacebookFeedPageSource(FacebookGenericSource):
+class FacebookPageFeedSource(FacebookGenericSource):
     __mapper_args__ = {
-        'polymorphic_identity': 'facebook_page_source'
+        'polymorphic_identity': 'facebook_page_feed_source'
     }
 
-    def fetch_content(self, api):
+    def fetch_content(self, api, limit=None):
         self._setup_reading(api)
+        self.feed(limit)
 
 
 class FacebookSinglePostSource(FacebookGenericSource):
@@ -562,8 +518,62 @@ class FacebookSinglePostSource(FacebookGenericSource):
         'polymorphic_identity': 'facebook_singlepost_source'
     }
 
-    def fetch_content(self, api):
+    def fetch_content(self, api, limit=None):
+        # Limit should not apply here, unless the limit is in reference to
+        # number of comments brought in
         self._setup_reading(api)
+        self.single_post(limit)
+
+
+class FacebookUser(IdentityProviderAccount):
+    __tablename__ = 'facebook_user'
+    __mapper_args__ = {
+        'polymorphic_identity': 'facebook_user'
+    }
+
+    id = Column(Integer, ForeignKey(
+        'idprovider_agent_account.id',
+        ondelete='CASCADE',
+        onupdate='CASCADE'), primary_key=True)
+    oauth_token = Column(String(1024))
+    oauth_token_longlived = Column(Boolean(),
+                                   default=False, server_default='0')
+    oauth_expiry = Column(DateTime)
+    app_id = Column(String(512))
+
+    def is_token_expired(self):
+        now = datetime.datetime.utcnow()
+        return now > self.oauth_expiry
+
+    def convert_to_longlived_token(self):
+        # Will only work on the revised version of the API
+        if not self.is_token_expired():
+            token, expires = FacebookAPI(self.oauth_token).extend_token()
+            self.oauth_token = token
+            self.oauth_token_longlived = True
+            self.oauth_expiry = self.oauth_expiry + \
+                datetime.timedelta(0, expires)
+
+    def populate_picture(self, profile):
+        self.picture_url = 'http://graph.facebook.com/%s/picture' % self.userid
+
+    @classmethod
+    def create(cls, user, provider, app_id, avatar_url=None):
+        userid = user.get('id')
+        full_name = user.get('name')
+        agent_profile = AgentProfile(name=full_name)
+        avatar = avatar_url or \
+            'http://graph.facebook.com/%s/picture' % userid
+
+        return cls(
+            provider=provider,
+            domain=DOMAIN,
+            userid=userid,
+            full_name=full_name,
+            profile=agent_profile,
+            app_id=app_id,
+            picture_url=avatar
+        )
 
 
 class FacebookPost(ImportedPost):
@@ -681,4 +691,5 @@ class FacebookReader(PullSourceReader):
 
     def do_read(self):
         # TODO reimporting
-        self.source.get_content(self.api)
+        limit = self.extra_args.get('limit', None)
+        self.source.get_content(self.api, limit)
