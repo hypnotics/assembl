@@ -309,7 +309,7 @@ class FacebookUser(IdentityProviderAccount):
         full_name = user.get('name')
         agent_profile = AgentProfile(name=full_name)
         avatar = avatar_url or \
-            'http://graph.facebook.com/%s/picutre' % userid
+            'http://graph.facebook.com/%s/picture' % userid
 
         return cls(
             provider=provider,
