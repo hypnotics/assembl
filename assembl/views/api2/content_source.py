@@ -18,7 +18,8 @@ def fetch_posts(request):
     csource = ctx._instance
     force_restart = request.params.get('force_restart', False)
     reimport = request.params.get('reimport', False)
-    if force_restart or reimport:
+    limit = request.params.get('limit', None)
+    if force_restart or reimport or limit:
         # Only discussion admins
         user_id = authenticated_userid(request)
         permissions = get_permissions(
@@ -31,6 +32,6 @@ def fetch_posts(request):
                 requested.append('force restart')
             raise HTTPUnauthorized("Only discussion administrator can "+'and'.join(requested))
 
-    wake(csource.id, reimport, force_restart)
+    wake(csource.id, reimport, force_restart, limit=limit)
     return {"message":"Source notified",
             "name": csource.name}
