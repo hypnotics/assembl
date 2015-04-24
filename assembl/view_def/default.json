@@ -110,6 +110,12 @@
     "FacebookGroupSourceFromUser": {
         "@extends": "FacebookGenericSource"
     },
+    "FacebookPagePostSource": {
+        "@extends": "FacebookGenericSource"
+    },
+    "FacebookPageFeedSource": {
+        "@extends": "FacebookGenericSource"
+    },
     "FacebookSinglePostSource": {
         "@extends": "FacebookGenericSource"
     },
