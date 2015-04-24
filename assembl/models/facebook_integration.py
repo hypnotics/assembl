@@ -350,14 +350,15 @@ class FacebookGenericSource(PostSource):
         # Utility method that creates the post and populates the local
         # cache.
         # Returns True if succesfull. False if post is not created.
-        if post['id'] not in db:
-            new_post = FacebookPost.create(self.source, post, user)
-            if not new_post:
-                return False
-            self.db.add(new_post)
-            self.db.flush()
-            db[post['id']] = new_post
+        if post.get('id') in db:
             return True
+        new_post = FacebookPost.create(self, post, user)
+        if not new_post:
+            return False
+        self.db.add(new_post)
+        self.db.flush()
+        db[post.get('id')] = new_post
+        return True
 
     def _manage_post(self, post, obj_id, posts_db, users_db):
         post_id = post.get('id')
