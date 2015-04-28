@@ -20,7 +20,7 @@ from virtuoso.alchemy import CoerceUnicode
 from sqlalchemy.orm import relationship, backref
 from .generic import PostSource  # , Content
 from .post import ImportedPost  # , Post
-from ..tasks.source_reader import PullSourceReader, wake
+from ..tasks.source_reader import PullSourceReader, ReaderStatus
 from ..lib.config import get_config
 from datetime import datetime
 import dateutil.parser
@@ -409,6 +409,8 @@ class FacebookGenericSource(PostSource):
             for cmt in self.parser.get_comments_on_comment_paginated(comment):
                 self._manage_comment(cmt, comment_post, posts_db,
                                      users_db)
+                if self.read_status == ReaderStatus.SHUTDOWN:
+                    break
 
     def feed(self, post_limit=None, cmt_limit=None):
         counter = 0
@@ -432,12 +434,16 @@ class FacebookGenericSource(PostSource):
                 continue
 
             counter += 1
+            if self.read_status == ReaderStatus.SHUTDOWN:
+                break
             for comment in self.parser.get_comments_paginated(post):
                 if cmt_limit:
                     if comment_counter >= cmt_limit:
                         break
                 self._manage_comment_subcomments(comment, assembl_post,
                                                  posts_db, users_db)
+                if self.read_status == ReaderStatus.SHUTDOWN:
+                    return
 
     def posts(self, post_limit=None):
         counter = 0
@@ -454,10 +460,14 @@ class FacebookGenericSource(PostSource):
                 continue
 
             counter += 1
+            if self.read_status == ReaderStatus.SHUTDOWN:
+                break
             for comment in self.parser.get_comments_paginated(post):
                 self._manage_comment_subcomments(comment, assembl_post,
                                                  posts_db, users_db,
                                                  True)
+                if self.read_status == ReaderStatus.SHUTDOWN:
+                    return
 
     def single_post(self, limit=None):
         raise NotImplementedError("To be developed after source/sink")
