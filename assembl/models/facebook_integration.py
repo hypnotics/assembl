@@ -640,6 +640,7 @@ class FacebookPost(ImportedPost):
         return cls(
             attachment=attachment,
             link_name=link_name,
+            body_mime_type='text/plain',
             import_date=import_date,
             source_post_id=source_post_id,
             message_id=source_post_id,
@@ -686,11 +687,11 @@ class FacebookContentSink(object):
 
 
 class FacebookReader(PullSourceReader):
-    def __init__(self, source):
-        super(FacebookReader, self).__init__(source.id)
-        self.api = FacebookAPI()
+    def __init__(self, source_id, api):
+        super(FacebookReader, self).__init__(source_id)
+        self.api = api
 
     def do_read(self):
         # TODO reimporting
         limit = self.extra_args.get('limit', None)
-        self.source.get_content(self.api, limit)
+        self.source.fetch_content(self.api, limit)
