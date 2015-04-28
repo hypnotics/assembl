@@ -98,7 +98,7 @@ class FacebookParser(object):
         next_page = page
         while True:
             if not next_page:
-                raise StopIteration
+                break
             qs = self._get_query_from_url(next_page)
             args = {
                 'limit': qs['limit'][0],  # The default limit is 25
@@ -108,7 +108,7 @@ class FacebookParser(object):
             wall, page = self.get_feed(object_id, **args)
             next_page = page
             if not wall:
-                raise StopIteration
+                break
             yield wall
 
     def get_feed_paginated(self, object_id):
@@ -129,7 +129,7 @@ class FacebookParser(object):
         next_page = page
         while True:
             if not next_page:
-                raise StopIteration
+                break
             qs = self._get_query_from_url(next_page)
             args = {
                 'limit': qs['limit'][0],
@@ -138,13 +138,13 @@ class FacebookParser(object):
             comments, page = self.get_comments(object_id, **args)
             next_page = page
             if not comments:
-                raise StopIteration
+                break
             yield comments
 
     def get_comments_paginated(self, post):
         # A generator object
         if 'comments' not in post:
-            raise StopIteration
+            return
         comments = post.get('comments')
         comments_data = comments.get('data')
         next_page = comments.get('paging', {}).get('next', None)
@@ -177,7 +177,7 @@ class FacebookParser(object):
         next_page = page
         while True:
             if not next_page:
-                raise StopIteration
+                break
             qs = self._get_query_from_url(next_page)
             args = {
                 'limit': qs['limit'][0],
@@ -186,7 +186,7 @@ class FacebookParser(object):
             posts, page = self.get_posts(object_id, **args)
             next_page = page
             if not posts:
-                raise StopIteration
+                break
             yield posts
 
     def get_posts_paginated(self, object_id):
@@ -374,7 +374,7 @@ class FacebookGenericSource(PostSource):
         result = self._create_post(post, creator_agent, posts_db)
 
         if not result:
-            raise StopIteration
+            return
 
         assembl_post = posts_db.get(post_id)
         self.db.commit()
@@ -392,7 +392,7 @@ class FacebookGenericSource(PostSource):
         cmt_creator_agent = users_db.get(user_id)
         cmt_result = self._create_post(comment, cmt_creator_agent, posts_db)
         if not cmt_result:
-            raise StopIteration
+            return
 
         self.db.flush()
         comment_post = posts_db.get(comment_id)
@@ -405,13 +405,10 @@ class FacebookGenericSource(PostSource):
                                     sub_comments=False):
         comment_post = self._manage_comment(comment, parent_post,
                                             posts_db, users_db)
-        if sub_comments:
+        if comment_post and sub_comments:
             for cmt in self.parser.get_comments_on_comment_paginated(comment):
-                try:
-                    _ = self._manage_comment(cmt, comment_post, posts_db,
-                                             users_db)
-                except StopIteration:
-                    continue
+                self._manage_comment(cmt, comment_post, posts_db,
+                                     users_db)
 
     def feed(self, post_limit=None, cmt_limit=None):
         counter = 0
@@ -429,10 +426,9 @@ class FacebookGenericSource(PostSource):
             if post_limit:
                 if counter >= post_limit:
                     break
-            try:
-                assembl_post = self._manage_post(post, self.fb_source_id,
+            assembl_post = self._manage_post(post, self.fb_source_id,
                                                  posts_db, users_db)
-            except StopIteration:
+            if not assembl_post:
                 continue
 
             counter += 1
@@ -440,11 +436,8 @@ class FacebookGenericSource(PostSource):
                 if cmt_limit:
                     if comment_counter >= cmt_limit:
                         break
-                try:
-                    self._manage_comment_subcomments(comment, assembl_post,
-                                                     posts_db, users_db)
-                except StopIteration:
-                    continue
+                self._manage_comment_subcomments(comment, assembl_post,
+                                                 posts_db, users_db)
 
     def posts(self, post_limit=None):
         counter = 0
@@ -455,20 +448,16 @@ class FacebookGenericSource(PostSource):
             if post_limit:
                 if counter >= post_limit:
                     break
-            try:
-                assembl_post = self._manage_post(post, self.fb_source_id,
-                                                 posts_db, users_db)
-            except StopIteration:
+            assembl_post = self._manage_post(post, self.fb_source_id,
+                                             posts_db, users_db)
+            if not assembl_post:
                 continue
 
             counter += 1
             for comment in self.parser.get_comments_paginated(post):
-                try:
-                    self._manage_comment_subcomments(comment, assembl_post,
-                                                     posts_db, users_db,
-                                                     True)
-                except StopIteration:
-                    continue
+                self._manage_comment_subcomments(comment, assembl_post,
+                                                 posts_db, users_db,
+                                                 True)
 
     def single_post(self, limit=None):
         raise NotImplementedError("To be developed after source/sink")
