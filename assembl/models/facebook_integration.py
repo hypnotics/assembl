@@ -18,8 +18,8 @@ from abc import abstractmethod
 from virtuoso.alchemy import CoerceUnicode
 # from ..lib.sqla import get_session_maker, Base
 from sqlalchemy.orm import relationship, backref
-from .generic import PostSource  # , Content
-from .post import ImportedPost  # , Post
+from .generic import PostSource, ContentSourceIDs
+from .post import ImportedPost
 from ..tasks.source_reader import PullSourceReader, ReaderStatus
 from ..lib.config import get_config
 from datetime import datetime
@@ -27,8 +27,6 @@ import dateutil.parser
 from urlparse import urlparse, parse_qs
 import simplejson as json
 import re
-
-# Follow a similar model to feed_parsing
 
 # @TODOs:
 #   1) Manage access_token expiration
@@ -87,6 +85,8 @@ class FacebookParser(object):
         self.fb_api = api
         self.api = api.api_caller()
         self.user_flush_state = None
+
+    # ============================GETTERS=================================== #
 
     # ----------------------------- feeds -------------------------------------
     def get_feed(self, object_id, **args):
@@ -273,6 +273,30 @@ class FacebookParser(object):
             return profile_info.get('url')
         return None
 
+    # ============================SETTERS=================================== #
+
+    def _populate_attachment(self, content):
+        args = {}
+        if content.has_body():
+            args['message'] = content.get_body()
+        if content.has_attachment():
+            args['link'] = content.get_attachment()
+            if content.attachment_extras():
+                args.update(content.get_attachment_extras())
+        return args
+
+    def push_profile_post(self, user, content):
+        args = self._populate_attachment(content)
+        user_id = user.id
+        resp = self.api.put_object(user_id, 'feed', **args)
+        return resp.get('id', None)
+
+    def push_group_post(self, group_id, content):
+        pass
+
+    def push_page_post(self, content):
+        pass
+
 
 class FacebookGenericSource(PostSource):
     """
@@ -429,7 +453,7 @@ class FacebookGenericSource(PostSource):
                 if counter >= post_limit:
                     break
             assembl_post = self._manage_post(post, self.fb_source_id,
-                                                 posts_db, users_db)
+                                             posts_db, users_db)
             if not assembl_post:
                 continue
 
@@ -651,25 +675,37 @@ class FacebookPost(ImportedPost):
             imported_blob=blob,
             subject=subject,
             body=body
-            )
+        )
 
 
 class FacebookContent(object):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, body=None, attachment=None, extras=None):
         print "Created the IFacebookContent"
+        self.body = body or ""
+        self.attachment = attachment
+        self.attachment_extras = extras or None
 
     def get_body(self):
-        pass
+        return self.body
+
+    def has_body(self):
+        return self.body is not ""
+
+    def has_attachment(self):
+        return self.attachment is not None
 
     def get_attachment(self):
-        pass
+        return self.attachment
+
+    def get_attachment_extras(self):
+        return self.attachment_extras
 
 
 class FacebookContentSink(object):
     # An object that would push whatever content wanted to facebook
-    def __init__(self, api, content, user):
-        self.content = content
+    def __init__(self, api, user):
         self.user = user
+        self.parser = FacebookParser(api)
 
     def verify_access_token_valid(self):
         # Check that the user access token has not expired
@@ -677,11 +713,15 @@ class FacebookContentSink(object):
         # Might need Velruse and front-end work to get to this stage
         pass
 
-    def create_source(self, discussion, location):
+    def create_source_from_post(self, post_id, post_address, user):
         # Create the source
         # Check that the access token allows pushing
         # If successfull push, create the source
         # And read from it immediately
+
+        # Create a Source
+        # source = FacebookSinglePostSource()
+        # Create a ContentSourceIDs
         pass
 
 
