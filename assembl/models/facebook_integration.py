@@ -180,9 +180,12 @@ class FacebookParser(object):
                 break
             qs = self._get_query_from_url(next_page)
             args = {
-                'limit': qs['limit'][0],
-                'after': qs['after'][0]
+                'limit': qs['limit'][0]
             }
+            if 'after' in next_page:
+                args['after'] = qs['after'][0]
+            if 'until' in next_page:
+                args['until'] = qs['until'][0]
             posts, page = self.get_posts(object_id, **args)
             next_page = page
             if not posts:
