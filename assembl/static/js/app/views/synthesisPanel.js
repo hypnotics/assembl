@@ -148,7 +148,7 @@ define(['views/visitors/objectTreeRenderVisitor', 'raven', 'underscore', 'jquery
                             return retval
                         };
                         if (rootIdea) {
-                            rootIdea.visitDepthFirst(objectTreeRenderVisitor(view_data, order_lookup_table, roots, inSynthesis));
+                            rootIdea.visitDepthFirst(objectTreeRenderVisitor(view_data, order_lookup_table, roots, inSynthesis), [], true);
                         }
                         _.each(roots, function append_recursive(idea) {
                             var rendered_idea_view = new IdeaFamilyView({

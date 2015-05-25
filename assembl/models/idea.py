@@ -161,6 +161,10 @@ class Idea(Tombstonable, DiscussionBoundBase):
         'source_links', 'source',
         creator=lambda idea: IdeaLink(source=idea))
 
+    parents_ts = association_proxy(
+        'source_links_ts', 'source_ts',
+        creator=lambda idea: IdeaLink(source=idea))
+
     children = association_proxy(
         'target_links', 'target',
         creator=lambda idea: IdeaLink(target=idea))
@@ -168,6 +172,20 @@ class Idea(Tombstonable, DiscussionBoundBase):
     @property
     def widget_add_post_endpoint(self):
         return self.widget_ancestor_endpoints()
+
+    def copy(self, tombstone=None):
+        tombstone = self.is_tombstone if tombstone is None else tombstone
+        copy = self.__class__(
+            long_title=self.long_title,
+            short_title=self.short_title,
+            definition=self.definition,
+            hidden=self.hidden,
+            creation_date=self.creation_date,
+            discussion=self.discussion,
+            is_tombstone=tombstone,
+            )
+        self.db.add(copy)
+        return copy
 
     def widget_ancestor_endpoints(self, target_idea=None):
         # HACK. Review consequences after test.
@@ -201,10 +219,18 @@ class Idea(Tombstonable, DiscussionBoundBase):
     def get_order_from_first_parent(self):
         return self.source_links[0].order if self.source_links else None
 
+    def get_order_from_first_parent_ts(self):
+        return self.source_links_ts[0].order if self.source_links_ts else None
+
     def get_first_parent_uri(self):
         return Idea.uri_generic(
             self.source_links[0].source_id
         ) if self.source_links else None
+
+    def get_first_parent_uri_ts(self):
+        return Idea.uri_generic(
+            self.source_links_ts[0].source_id
+        ) if self.source_links_ts else None
 
     @staticmethod
     def _get_idea_dag_statement(skip_where=False):
@@ -928,6 +954,14 @@ class IdeaLink(Tombstonable, DiscussionBoundBase):
                     "Idea.is_tombstone==False)",
         backref=backref('source_links', cascade="all, delete-orphan"),
         foreign_keys=(target_id))
+    source_ts = relationship(
+        'Idea',
+        backref=backref('target_links_ts', cascade="all, delete-orphan"),
+        foreign_keys=(source_id))
+    target_ts = relationship(
+        'Idea',
+        backref=backref('source_links_ts', cascade="all, delete-orphan"),
+        foreign_keys=(target_id))
     order = Column(
         Float, nullable=False, default=0.0,
         info={'rdf': QuadMapPatternS(None, ASSEMBL.link_order)})
@@ -985,17 +1019,18 @@ class IdeaLink(Tombstonable, DiscussionBoundBase):
                 )
         ]
 
-    def copy(self):
+    def copy(self, tombstone=None):
+        tombstone = self.is_tombstone if tombstone is None else tombstone
         retval = self.__class__(source_id=self.source_id,
                                 target_id=self.target_id,
-                                is_tombstone=self.is_tombstone
+                                is_tombstone=tombstone
                                 )
         self.db.add(retval)
         return retval
 
     def get_discussion_id(self):
-        if inspect(self).attrs.source.loaded_value != NO_VALUE:
-            return self.source.get_discussion_id()
+        if inspect(self).attrs.source_ts.loaded_value != NO_VALUE:
+            return self.source_ts.get_discussion_id()
         else:
             return self.object_session.query(Idea).get(self.source_id).get_discussion_id()
 

@@ -39,6 +39,7 @@ define(['underscore', 'models/base', 'common/context', 'utils/i18n', 'utils/type
                 isOpen: true,
                 hidden: false,
                 hasCheckbox: false,
+                is_tombstone: false,
                 featured: false,
                 active: false,
                 inNextSynthesis: false,
@@ -264,7 +265,10 @@ define(['underscore', 'models/base', 'common/context', 'utils/i18n', 'utils/type
             },
 
 
-            visitDepthFirst: function (visitor, ancestry) {
+            visitDepthFirst: function (visitor, ancestry, include_ts) {
+                if (this.get('is_tombstone') && include_ts !== true) {
+                    return;
+                }
                 if (ancestry === undefined) {
                     ancestry = [];
                 }
@@ -275,12 +279,15 @@ define(['underscore', 'models/base', 'common/context', 'utils/i18n', 'utils/type
                         return child.get('order');
                     });
                     for (var i in children) {
-                        children[i].visitDepthFirst(visitor, ancestry);
+                        children[i].visitDepthFirst(visitor, ancestry, include_ts);
                     }
                 }
             },
 
-            visitBreadthFirst: function (visitor, ancestry) {
+            visitBreadthFirst: function (visitor, ancestry, include_ts) {
+                if (this.get('is_tombstone') && include_ts !== true) {
+                    return false;
+                }
                 var continue_visit = true
                 if (ancestry === undefined) {
                     ancestry = [];
@@ -292,6 +299,9 @@ define(['underscore', 'models/base', 'common/context', 'utils/i18n', 'utils/type
                     var children = _.sortBy(this.getChildren(), function (child) {
                         return child.get('order');
                     });
+                    if (include_ts !== true) {
+                        children = children.filter(function (c) {return !c.get('is_tombstone');});
+                    }
                     var children_to_visit = [];
                     for (var i in children) {
                         var child = children[i];
@@ -300,7 +310,7 @@ define(['underscore', 'models/base', 'common/context', 'utils/i18n', 'utils/type
                         }
                     }
                     for (var i in children_to_visit) {
-                        children_to_visit[i].visitBreadthFirst(visitor, ancestry);
+                        children_to_visit[i].visitBreadthFirst(visitor, ancestry, include_ts);
                     }
                 }
             },

@@ -21,6 +21,7 @@ define(['underscore', 'models/base'], function (_, Base) {
         defaults: {
             source: '',
             target: '',
+            is_tombstone: false,
             order: 1
         },
 
