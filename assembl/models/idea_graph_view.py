@@ -20,7 +20,7 @@ from .discussion import Discussion
 from ..semantic.virtuoso_mapping import QuadMapPatternS
 from ..auth import (
     CrudPermissions, P_ADMIN_DISC, P_EDIT_SYNTHESIS)
-from .idea import Idea, IdeaLink
+from .idea import Idea, IdeaLink, RootIdea
 from ..semantic.namespaces import (
     SIOC, CATALYST, IDEA, ASSEMBL, DCTERMS, QUADNAMES)
 from assembl.views.traversal import AbstractCollectionDefinition
@@ -395,20 +395,37 @@ class Synthesis(ExplicitSubGraphView):
         # Do not copy the root
         root = self.discussion.root_idea
         idea_copies = {root.id: root}
+        # Also copies ideas between two synthesis ideas
+        relevant_idea_ids = synthesis_idea_ids.copy()
+        def add_ancestors_between(idea, path=None):
+            if isinstance(idea, RootIdea):
+                return
+            path = path[:] if path else []
+            if idea.id in synthesis_idea_ids:
+                relevant_idea_ids.update({i.id for i in path})
+            else:
+                path.append(idea)
+            for parent in idea.parents:
+                add_ancestors_between(parent, path)
+        for idea in self.ideas:
+            for parent in idea.parents:
+                add_ancestors_between(parent)
         for link in links:
             new_link = link.copy(tombstone=True)
             frozen_synthesis.idea_links.append(new_link)
-            if link.source_id in synthesis_idea_ids:
+            if link.source_id in relevant_idea_ids:
                 if link.source_id not in idea_copies:
                     new_idea = link.source_ts.copy(tombstone=True)
-                    frozen_synthesis.ideas.append(new_idea)
                     idea_copies[link.source_id] = new_idea
+                    if link.source_id in synthesis_idea_ids:
+                        frozen_synthesis.ideas.append(new_idea)
                 new_link.source_ts = idea_copies[link.source_id]
-            if link.target_id in synthesis_idea_ids:
+            if link.target_id in relevant_idea_ids:
                 if link.target_id not in idea_copies:
                     new_idea = link.target_ts.copy(tombstone=True)
-                    frozen_synthesis.ideas.append(new_idea)
                     idea_copies[link.target_id] = new_idea
+                    if link.target_id in synthesis_idea_ids:
+                        frozen_synthesis.ideas.append(new_idea)
                 new_link.target_ts = idea_copies[link.target_id]
         return frozen_synthesis
 
