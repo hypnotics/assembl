@@ -99,6 +99,14 @@ def get_default_context(request):
             get_language(localizer.locale_name), 'LC_MESSAGES', 'assembl.jed.json')
     assert os.path.exists(jedfilename)
 
+    from ..models.facebook_integration import language_sdk_existance
+    fb_lang_exists, fb_locale = language_sdk_existance(get_language(localizer.locale_name),
+                                                    countries_for_locales)
+
+    social_settings = {
+        'fb_app_id': config.get('facebook.consumer_key')
+    }
+
     return dict(
         default_context,
         request=request,
@@ -108,6 +116,9 @@ def get_default_context(request):
         user_profile_edit_url=user_profile_edit_url,
         locale=localizer.locale_name,
         locales=locales,
+        fb_lang_exists=fb_lang_exists,
+        fb_locale=fb_locale,
+        social_settings=social_settings,
         show_locale_country=show_locale_country,
         theme=get_theme(discussion),
         minified_js=config.get('minified_js') or False,
@@ -204,7 +215,7 @@ def includeme(config):
     config.include('.traversal')
 
     config.add_route('discussion_list', '/')
-    
+
     config.include(backbone_include, route_prefix='/{discussion_slug}')
 
     if asbool(config.get_settings().get('assembl_handle_exceptions', 'true')):
@@ -218,7 +229,7 @@ def includeme(config):
 
     config.include('.home')
     config.include('.admin')
-    
+
     config.add_route('home', '/{discussion_slug}')
     config.add_route('home-auto', '/{discussion_slug}/')
     def redirector(request):
