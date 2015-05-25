@@ -93,7 +93,7 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
               'change':'render',
               'openWithFullBodyView': 'onOpenWithFullBodyView'
             },
-            
+
             ui: {
               jumpToParentButton: ".js_message-jumptoparentbtn",
               jumpToMessageInThreadButton: ".js_message-jump-to-message-in-thread",
@@ -101,7 +101,7 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
               showAllMessagesByThisAuthorButton: ".js_message-show-all-by-this-author",
               messageReplyBox: ".message-replybox"
             },
-            
+
 
             /**
              * @event
@@ -133,12 +133,13 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
                 // menu
                 'click .js_message-markasunread': 'markAsUnread',
                 'click .js_message-markasread': 'markAsRead',
+                'click .js_message-export-facebook': 'exportToFacebook',
 
                 'click .js_openTargetInPopOver': 'openTargetInPopOver'
             },
 
             /**
-             * @param htmlOrText Any string, p and br tags are replaced with 
+             * @param htmlOrText Any string, p and br tags are replaced with
              * spaces, and all html is stripped
              * @return string
              */
@@ -150,7 +151,7 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
               bodyWithoutNewLine.find("br").replaceWith(" ");
               return bodyWithoutNewLine.text().replace(/\s{2,}/g, ' ');
             },
-            
+
             serializeData: function(){
                 var bodyFormatClass,
                     body,
@@ -219,10 +220,10 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
                   else {
                     this.setViewStyle(this.viewStyle);
                   }
-                  
+
                   this.clearAnnotationsToLoadCache();
                   Ctx.removeCurrentlyDisplayedTooltips(this.$el);
-  
+
                   this.$el.attr("id", "message-" + this.model.get('@id'));
                   this.$el.addClass(this.model.get('@type'));
 
@@ -235,13 +236,13 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
                             this.$el.removeClass('read').addClass('unread');
                         }
                     }
-  
+
                   Ctx.initTooltips(this.$el);
                   if ( this.viewStyle == this.availableMessageViewStyles.FULL_BODY ){
                       Ctx.convertUrlsToLinks(this.$el.children('.message-body')); // we target only the body part of the message, not the title
                       Ctx.makeLinksShowOembedOnHover(this.$el.children('.message-body'));
                   }
-  
+
                   that.replyView = new MessageSendView({
                       allow_setting_subject: false,
                       reply_message_id: modelId,
@@ -256,9 +257,9 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
                       mandatory_subject_missing_msg: null
                   });
                   that.ui.messageReplyBox.append(this.replyView.render().el);
-  
+
                   this.postRender();
-  
+
                   if (this.replyBoxShown || partialMessage['body']) {
                     this.ui.messageReplyBox.removeClass('hidden');
                       if ( this.replyBoxHasFocus )
@@ -267,17 +268,17 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
                   else {
                     this.ui.messageReplyBox.addClass('hidden');
                   }
-  
+
                   if (this.viewStyle == this.availableMessageViewStyles.FULL_BODY) {
                       //Only the full body view uses annotator
                       this.messageListView.requestAnnotatorRefresh();
                   }
-  
+
                   if (this.viewStyle == that.availableMessageViewStyles.FULL_BODY && this.messageListView.defaultMessageStyle != this.availableMessageViewStyles.FULL_BODY) {
                       this.showReadLess();
                   }
-  
-  
+
+
                   if(this.messageListView.isViewStyleThreadedType()
                       && that.messageFamilyView.currentLevel !== 1) {
                       this.model.getParentPromise().then(function(parentMessageModel){
@@ -288,10 +289,10 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
                           }
                       });
                   }
-  
-  
+
+
                   if (this.viewStyle == this.availableMessageViewStyles.PREVIEW) {
-  
+
                       var applyEllipsis = function(){
                           /* We use https://github.com/MilesOkeefe/jQuery.dotdotdot to show
                            * Read More links for message previews
@@ -328,9 +329,9 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
                               watch: "window" //TODO:  We should trigger updates from the panel algorithm instead
                           });
                       };
-  
+
                       that.messageListView.requestPostRenderSlowCallback(function () {
-  
+
                           setTimeout(function(){
                               //console.log("Initializing ellipsis on message", that.model.id);
                               var current_navigation_state = that.messageListView.getContainingGroup().model.get('navigationState');
@@ -342,8 +343,8 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
                               }
                               applyEllipsis();
                           }, 100);
-  
-  
+
+
                           /* We no longer need this, but probably now need to
                            * update when the panels change size with the
                            * new system benoitg-2014-09-18
@@ -352,7 +353,7 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
                            that.$(".ellipsis").trigger('update.dot');
                            });*/
                       });
-  
+
                       var current_navigation_state = that.messageListView.getContainingGroup().model.get('navigationState');
                       //console.log("current_navigation_state:", current_navigation_state);
                       //Why do we need the following block?  benoitg-2015-03-03
@@ -369,7 +370,7 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
                               }
                           });
                       }
-  
+
                   }
                 }
 
@@ -636,7 +637,7 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
                 this.focusReplyBox();
               }
             },
-            
+
             /**
              *  Focus on the reply box, and open the message if closed
              **/
@@ -652,12 +653,12 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
                 if(!el.is(':visible')) {
                   console.error("Element not yet visible...")
                 }
-                
+
                 setTimeout(function () {
                   el.focus();
                 }, 1);//This settimeout is necessary, at least for chrome, to focus properly
               }
-              else if (this.ui.messageReplyBox.length){ 
+              else if (this.ui.messageReplyBox.length){
                 // if the .js_messageSend-body field is not present, this means the user is not logged in, so we scroll to the alert box
                 //console.log("Scrooling to reply box instead");
                 this.messageListView.scrollToElement(this.ui.messageReplyBox);
@@ -677,7 +678,7 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
                 this.isHoisted = this.messageListView.toggleFilterByPostId(this.model.getId());
                 this.render(); // so that the isHoisted property will now be considered
             },
-            
+
             onMessageJumpToParentClick: function (ev) {
               this.messageListView.showMessageById(this.model.get('parentId'));
             },
@@ -695,8 +696,8 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
               this.messageListView.render();
               this.messageListView.showMessageById(this.model.id);
             },
-            
-            
+
+
             onShowAllMessagesByThisAuthorClick: function (ev) {
               this.messageListView.currentQuery.clearAllFilters();
               this.messageListView.currentQuery.addFilter(this.messageListView.currentQuery.availableFilters.POST_IS_FROM, this.model.get('idCreator'));
@@ -765,7 +766,7 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
             },
 
             /**
-             * move the message to it's "closed" state, which is dependent on the 
+             * move the message to it's "closed" state, which is dependent on the
              * view
              */
             doCloseMessage: function () {
@@ -786,7 +787,7 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
             toggleViewStyle: function () {
               this.isMessageOpened()?this.doCloseMessage():this.doOpenMessage();
             },
-            
+
             /**
              * @event
              */
@@ -807,8 +808,8 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
             doProcessMessageTitleClick: function () {
                 this.toggleViewStyle();
             },
-            
-            /** 
+
+            /**
              * This il only called by messageList::showMessageById
              */
             onOpenWithFullBodyView: function(e) {
@@ -1004,6 +1005,16 @@ define(['backbone.marionette','backbone', 'underscore', 'ckeditor', 'app', 'comm
             openTargetInPopOver: function (evt) {
                 console.log("message openTargetInPopOver(evt: ", evt);
                 return Ctx.openTargetInPopOver(evt);
+            },
+            /**
+             * [exportToFacebook global function that
+             *  uses the facebook javascript sdk to push
+             *  to facebook]
+             * @param  {event}
+             * @return {null}
+             */
+            exportToFacebook: function(event) {
+                console.log("the click event", event);
             }
 
 
