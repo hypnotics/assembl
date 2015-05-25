@@ -1,3 +1,9 @@
+from abc import abstractmethod
+from collections import defaultdict
+from datetime import datetime
+from urlparse import urlparse, parse_qs
+import re
+
 from sqlalchemy import (
     Column,
     ForeignKey,
@@ -5,7 +11,12 @@ from sqlalchemy import (
     String,
     Boolean,
     DateTime
- )
+)
+import dateutil.parser
+import facebook
+import simplejson as json
+from sqlalchemy.orm import relationship, backref
+from virtuoso.alchemy import CoerceUnicode
 
 from .auth import (
     AgentProfile,
@@ -13,30 +24,92 @@ from .auth import (
     IdentityProviderAccount,
 )
 
-import facebook
-from abc import abstractmethod
-from virtuoso.alchemy import CoerceUnicode
-# from ..lib.sqla import get_session_maker, Base
-from sqlalchemy.orm import relationship, backref
+from ..lib.config import get_config
+from ..tasks.source_reader import PullSourceReader, ReaderStatus
 from .generic import PostSource, ContentSourceIDs
 from .post import ImportedPost
-from ..tasks.source_reader import PullSourceReader, ReaderStatus
-from ..lib.config import get_config
-from datetime import datetime
-import dateutil.parser
-from urlparse import urlparse, parse_qs
-import simplejson as json
-import re
-
-# @TODOs:
-#   1) Manage access_token expiration
-#       Check for the type of exception received, if it is access_token
-#       related, direct to the login_url
 
 
 API_VERSION_USED = 2.2
 DEFAULT_TIMEOUT = 30  # seconds
 DOMAIN = 'facebook.com'
+
+
+facebook_sdk_locales = defaultdict(set)
+
+def fetch_facebook_sdk_locales():
+    import requests as r
+    from lxml import etree
+    global facebook_sdk_locales
+    xml_path = 'https://www.facebook.com/translations/FacebookLocales.xml'
+    req = r.get(xml_path)
+    xml = req.content
+    root = etree.fromstring(xml)
+    locales = root.xpath('//representation/text()')
+    for locale in locales:
+        lang, country = locale.split('_')
+        facebook_sdk_locales[lang].add(country)
+
+
+def run_setup():
+    if not facebook_sdk_locales.keys():
+        fetch_facebook_sdk_locales()
+
+def language_sdk_existance(lang, default_locale_dict):
+    def _check_fb_locale(lang, country=None):
+        if not country:
+            return lang in facebook_sdk_locales
+        if lang in facebook_sdk_locales:
+            countries = facebook_sdk_locales[lang]
+            if country in countries:
+                return True
+        return False
+
+    def _get_rand_country(lang, source):
+        return random.sample(source[lang], 1)[0]
+
+    # for example: default_locale_dict is a {'fr': set(['CA', 'FR'])}
+    from ..lib.locale import use_underscore, get_country, get_language
+    import random
+    run_setup()
+    lang = use_underscore(lang)
+    country = None
+    if '_' in lang:
+        lang, country = get_language(lang), get_country(lang)
+    if lang == 'ar':
+        return True, 'ar_AR'
+    elif lang == 'de':
+        return True, 'de_DE'
+    elif lang == 'es':
+        if country and (country == 'ES' or country == 'CO'):
+            return True, lang + '_' + country
+        return True, 'es_LA'
+    elif lang in facebook_sdk_locales:
+        if not country:
+            if lang == 'en':
+                return True, 'en_US'
+
+            if lang in default_locale_dict:
+                tmp_country = _get_rand_country(lang, default_locale_dict)
+                if _check_fb_locale(lang, tmp_country):
+                    return True, lang + '_' + tmp_country
+
+            # language exists, but no country
+            rand_country =  _get_rand_country(lang, facebook_sdk_locales)
+            return True, lang + '_' + rand_country
+
+        fb_countries = facebook_sdk_locales[lang]
+        if country in fb_countries:
+            return True, lang + '_' + country
+        if lang == 'en':
+            return True, lang + '_US'
+        else:
+            rand_country = _get_rand_country(lang, facebook_sdk_locales)
+            return True, lang + '_' + rand_country
+
+    # If all else fails, drop down to US English
+    else:
+        return False, 'en_US'
 
 
 class FacebookAPI(object):
